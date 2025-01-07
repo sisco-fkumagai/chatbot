@@ -1,9 +1,15 @@
 import React from 'react';
+import Header from './components/Header.js';
+import ChatBot from './components/ChatBot.js';
+import './App.css';
 
-const Header = () => (
-  <header className="header">
-    <div>シスココンサルティング（仮）</div>
-  </header>
-);
+function App() {
+  return (
+    <div className="App">
+      <Header />
+      <ChatBot />
+    </div>
+  );
+}
 
-export default Header;
+export default App;
