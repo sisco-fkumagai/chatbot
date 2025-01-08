@@ -10,6 +10,17 @@
       "StackName": "amplify-amplify-dev-3d753",
       "StackId": "arn:aws:cloudformation:ap-northeast-1:202533533312:stack/amplify-amplify-dev-3d753/ea9358d0-cd44-11ef-8dd4-0694b7b31db5",
       "AmplifyAppId": "d14d12s5frzacc"
+    },
+    "categories": {
+      "function": {
+        "APIFunction": {
+          "deploymentBucketName": "amplify-amplify-dev-3d753-deployment",
+          "s3Key": "amplify-builds/APIFunction-38314b642b3758782f68-build.zip"
+        }
+      },
+      "api": {
+        "API": {}
+      }
     }
   }
 }
