@@ -1,7 +1,6 @@
-import os
 import requests
 
-GMAIL_API_URL = os.getenv("GMAIL_API_URL")  # 環境変数からURLを取得
+GMAIL_API_URL = "https://script.google.com/macros/s/AKfycbzsGxR9v1nYA2GwjEK49vy1Fw06_h6lxxtRRO6mDDHRbzyPhI5rXfL7nKcYgp8OMXIs/exec"
 
 def create_email_draft(recipients, subject, body, cc=None):
     """

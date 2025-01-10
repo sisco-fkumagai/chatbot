@@ -2,7 +2,7 @@ import React from 'react';
 
 const Header = () => (
     <header className="header">
-        <div>シスココンサルティング（仮）</div>
+        <div>シスココンサルティング（就活アシスタントチャットボット）</div>
     </header>
 );
 
