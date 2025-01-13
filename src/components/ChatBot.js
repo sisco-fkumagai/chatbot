@@ -10,7 +10,7 @@ const ChatBot = () => {
     const [isInitialLoading, setIsInitialLoading] = useState(true); // 初期メッセージのローディング状態
 
     // 環境変数からバックエンドAPI URLを取得
-    const apiUrl = process.env.REACT_APP_BACKEND_API_URL || 'http://127.0.0.1:8000';
+    const apiUrl = process.env.REACT_APP_BACKEND_API_URL;
 
     // 初期化処理
     useEffect(() => {
