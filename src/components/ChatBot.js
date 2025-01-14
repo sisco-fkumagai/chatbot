@@ -11,6 +11,7 @@ const ChatBot = () => {
 
     // 環境変数からバックエンドAPI URLを取得
     const apiUrl = process.env.REACT_APP_BACKEND_API_URL;
+    //console.log("API URL:", process.env.REACT_APP_BACKEND_API_URL);
 
     // 初期化処理
     useEffect(() => {
