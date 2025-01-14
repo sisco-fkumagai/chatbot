@@ -6,7 +6,7 @@ import openai
 load_dotenv()
 
 # APIキーを設定
-openai.api_key = os.getenv("CHATGPT_API_KEY")
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 def chat_with_gpt(prompt):
