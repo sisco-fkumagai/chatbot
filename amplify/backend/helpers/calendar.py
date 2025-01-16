@@ -2,6 +2,7 @@ import os
 import requests
 
 CALENDAR_API_URL = os.getenv("CALENDAR_API_URL")
+print(f"Loaded CALENDAR_API Key: {CALENDAR_API_URL}")
 
 def add_event_to_calendar(date, hours, title):
     """

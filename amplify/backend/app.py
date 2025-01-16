@@ -100,7 +100,7 @@ async def chat(request: ChatRequest):
 
     # 現在の日付を取得
     today = datetime.now().strftime("%Y-%m-%d")
-    logger.debug(f"【DEBUG】Today's date: {today}")
+    logger.debug(f"【DEBUG①】今日の日付: {today}")
     
     # ChatGPTへのプロンプト作成
     prompt = (
@@ -110,8 +110,9 @@ async def chat(request: ChatRequest):
         "2. 一次面接の日程調整では他の面接日程調整は行わないでください。\n"
         "3. 採用活動に関する質問（FAQ）では他の質問には回答しないでください。\n"
         "4. 初期メッセージに対して面接の日程調整が選択された場合、初めに「名前、大学、希望日程」を聞いてください。\n"
-        "4. 日程調整のための情報を求めるときにユーザーからの返答のフォーマットは 名前、大学、希望日程 になるように聞いてください。例: 田中太郎、AB大学、来週\n"
-        "5. ユーザーに提示する日程は時間まで含めて、日付はYYYY-MM-DDの形で今日の日付から日程を近いものから最大3つ提示してください。"
+        "4. 必要な情報を尋ねる場合、 必ず「名前、大学、希望日程」の形式を求めてください。例: 田中太郎、AB大学、来週\n"
+        "4. 不足している情報があれば、それを具体的に指摘してください。\n"
+        "5. ユーザーに提示する日程は時間まで含めて、日付はYYYY/M/D(WWW) h:mm-h:mmの形で今日の日付から日程を近いものから最大3つ提示してください。曜日は漢字で提示してください。"
         "   面接は日基本的に対面となる。"
         "6. 日程調整ではGoogleカレンダー上の「空き」イベントのみを考慮してください。"
         "7. 必要な情報が不足している場合は、具体的に何を入力すべきか指示してください。\n"
@@ -123,10 +124,11 @@ async def chat(request: ChatRequest):
     try:
         # ChatGPTに応答を依頼
         chat_response = chat_with_gpt(prompt)
-        logger.debug(f"【DEBUG】ChatGPT応答: {chat_response}")
 
         # ChatGPTの応答を整形して返す
         formatted_response = format_response_with_newlines(chat_response)
+        logger.debug(f"【DEBUG②】ChatGPT応答: {formatted_response}")
+        logger.debug(f"【DEBUG③】ChatGPT応答: {chat_response}")
 
         # 日程調整処理
         if "1" in request.message or any(keyword in request.message for keyword in ["日程", "面接", "調整"]):
@@ -155,7 +157,7 @@ async def chat(request: ChatRequest):
             # 情報が揃っている場合、日程調整を行う
             start_date, end_date = parse_period(request.message)
             events = get_events_from_calendar(start_date, end_date)
-            logger.debug(f"【DEBUG】取得したイベント: {events}")
+            logger.debug(f"【DEBUG③】取得したイベント: {events}")
 
             now = datetime.now(timezone.utc)  # タイムゾーン情報付きの現在時刻を取得
             filtered_events = [
@@ -185,7 +187,7 @@ async def chat(request: ChatRequest):
             return {"reply": faq_response}
 
         # 制約外の質問への対応
-        return {"reply": formatted_response }
+        return {"reply": chat_response }
 
     except Exception as e:
         logger.error(f"【ERROR】{str(e)}")
