@@ -169,6 +169,7 @@ async def chat(request: ChatRequest):
                 "不足している情報があれば、それをユーザーに再度確認する応答文を生成してください。\n"
                 "希望日程は「今週」「来週」などの表現でも次のステップに進めてください。\n"
                 "次のステップはsuggest_dates\n"
+                "応答は出力形式に沿ってしてください。\n"
                 "出力形式: {\"next_step\": \"次のステップ\", \"reply\": \"応答文\", \"name\": \"名前\", \"university\": \"大学\", \"date\": \"希望日程\"}"
             )
             chat_response = chat_with_gpt(chat_prompt)
@@ -231,6 +232,7 @@ async def chat(request: ChatRequest):
                 "出力形式: {\"reply\": \"応答文\"}"
             )
             chat_response = chat_with_gpt(chat_prompt_dates)
+            logger.debug(f"【DEBUG-4-2】ChatGPT応答: {chat_response}")
             response_data = json.loads(chat_response)
 
             state["step"] = "confirm_date"
