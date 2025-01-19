@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from helpers.chatgpt import chat_with_gpt
 from helpers.calendar import get_events_from_calendar, add_event_to_calendar, delete_event_from_calendar
 from helpers.gmail import send_email
-from helpers.faq import get_faq_response
+from helpers.faq import load_faq, search_faq
 import logging
 from pytz import timezone as pytz_timezone
 
@@ -44,6 +44,10 @@ JST = pytz_timezone("Asia/Tokyo")
 
 # 会話の状態を管理するグローバル辞書
 conversation_state = {}
+
+# FAQデータをロード
+FAQ_PATH = os.path.join(os.path.dirname(__file__), "helpers", "faq.json")
+faq_data = load_faq(FAQ_PATH)
 
 def parse_period(user_message):
     today = datetime.today()
@@ -91,6 +95,9 @@ def add_event_to_calendar_jst(start_time, duration_hours, title):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
+        question = request.message.strip()
+        logger.debug(f"ユーザーの質問: {question}")
+
         # ユーザーIDを取得
         if isinstance(request.context, dict) and "user_id" in request.context:
             user_id = request.context["user_id"]
@@ -98,7 +105,7 @@ async def chat(request: ChatRequest):
             user_id = "guest"  # デフォルト値（変更する場合は一意の識別子を適用）
         logger.debug(f"【DEBUG-1】ユーザーID: {user_id}")
 
-        # ユーザーごとに会話状態を管理
+        # 会話状態の初期化
         if user_id not in conversation_state:
             conversation_state[user_id] = {"step": "initial", "context": [], "name": None, "university": None, "date": None, "suggested_dates": []}
         state = conversation_state[user_id]
@@ -118,7 +125,7 @@ async def chat(request: ChatRequest):
                 "一次面接以外の日程調整はしないでください。\n"
                 "日程調整を選んだ場合は、名前、大学、希望日程を聞いてください。\n"
                 "希望日程は「今週」「来週」などの表現でも進めてください。\n"
-                "次のステップはask_details\n"
+                "次のステップ: 日程調整はask_details、質問はfaq_handling\n"
                 "出力形式: {\"next_step\": \"次のステップ\", \"reply\": \"応答文\"}"
             )
             chat_response = chat_with_gpt(chat_prompt)
@@ -131,6 +138,29 @@ async def chat(request: ChatRequest):
 
             # 応答を返却
             return {"reply": response_data.get("reply", "選択肢を再度教えてください。")}
+        
+        # FAQ処理ステップ
+        if state["step"] == "faq_handling":
+            answer = search_faq(question, faq_data)
+
+            if answer:
+                # FAQに一致する回答が見つかった場合
+                return {"reply": answer}
+            else:
+                # FAQに一致する回答がない場合
+                chat_prompt_faq = (
+                    f"以下の質問が採用活動に関連するかを判断してください:\n{question}\n"
+                    "採用活動に関連する場合は以下のように応答してください:\n"
+                    "『その質問についての情報は現在ありません。採用担当者にお問い合わせください。\n"
+                    "連絡先: example@example.com』\n"
+                    "採用活動に関連しない場合は:\n"
+                    "『申し訳ありませんが、採用活動に関係のない質問にはお答えできません。』と答えてください。\n"
+                    "出力形式: {\"reply\": \"応答文\"}"
+                )
+                chat_response = chat_with_gpt(chat_prompt_faq)
+                response_data = json.loads(chat_response)
+
+                return {"reply": response_data.get("reply", "もう一度質問を入力してください。")}
         
         # 名前、大学、希望日程を抽出するステップ
         if state["step"] == "ask_details":

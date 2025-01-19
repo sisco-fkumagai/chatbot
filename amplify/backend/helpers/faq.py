@@ -1,23 +1,31 @@
-import os
 import json
+import os
+from difflib import get_close_matches
+import logging
 
-# faq.json の絶対パスを取得
-faq_path = os.path.join(os.path.dirname(__file__), "faq.json")
+logger = logging.getLogger(__name__)
 
-# ファイルの存在を確認してデバッグ出力
-if not os.path.exists(faq_path):
-    raise FileNotFoundError(f"FAQファイルが見つかりません: {faq_path}")
-else:
-    print(f"FAQファイルのパス: {faq_path}")
+def load_faq(file_path="faq.json"):
+    try:
+        with open(file_path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        logger.error(f"FAQファイルが見つかりません: {file_path}")
+        return {}
+    except json.JSONDecodeError as e:
+        logger.error(f"FAQファイルの読み込みエラー: {e}")
+        return {}
 
-with open(faq_path, "r", encoding="utf-8") as file:
-    FAQ_DATA = json.load(file)
-
-def get_faq_response(message):
+def search_faq(question, faq_data, threshold=0.4):
     """
-    FAQデータに基づいて適切な応答を返す。
+    FAQデータから質問に近い回答を検索する。
     """
-    for faq in FAQ_DATA["faqs"]:
-        if faq["question"] in message:
-            return faq["answer"]
-    return "その質問についての情報はありません。採用担当者へお問い合わせください。"
+    questions = [item["question"] for item in faq_data]
+    matches = get_close_matches(question, questions, n=1, cutoff=threshold)
+
+    if matches:
+        matched_question = matches[0]
+        for faq_item in faq_data:
+            if faq_item["question"] == matched_question:
+                return faq_item["answer"]
+    return None
