@@ -1,44 +1,19 @@
+import os
 import requests
 
-GMAIL_API_URL = "https://script.google.com/macros/s/AKfycbzsGxR9v1nYA2GwjEK49vy1Fw06_h6lxxtRRO6mDDHRbzyPhI5rXfL7nKcYgp8OMXIs/exec"
+# 環境変数からメール送信用API URLを取得
+GMAIL_API_URL = os.getenv("GAS_API_URL")
 
-def create_email_draft(recipients, subject, body, cc=None):
+def send_email(subject, body, to="kfuka@sisco-consulting.co.jp"):
     """
-    Gmailの下書きを作成する。
-    :param recipients: 受信者のメールアドレス (例: "example@gmail.com")
-    :param subject: メールの件名
-    :param body: メール本文
-    :param cc: CC先のメールアドレス（オプション）
-    :return: 下書き作成の結果
+    指定された宛先にメールを送信する。
     """
-    payload = {
-        "action": "createDraft",
-        "recipients": recipients,
-        "subject": subject,
-        "body": body
+    data = {
+        "action": "sendEmail",
+        "Subject": subject,
+        "Body": body,
+        "To": to
     }
-    if cc:
-        payload["cc"] = cc
-
-    response = requests.post(GMAIL_API_URL, json=payload)
-    if response.status_code == 200:
-        return response.text
-    else:
-        raise Exception(f"Failed to create email draft: {response.text}")
-
-def send_email_draft(draft_id):
-    """
-    Gmailの下書きを送信する。
-    :param draft_id: 下書きのID
-    :return: 送信結果
-    """
-    payload = {
-        "action": "sendDraft",
-        "draftId": draft_id
-    }
-
-    response = requests.post(GMAIL_API_URL, json=payload)
-    if response.status_code == 200:
-        return response.text
-    else:
-        raise Exception(f"Failed to send email draft: {response.text}")
+    response = requests.post(GMAIL_API_URL, json=data)
+    if response.status_code != 200:
+        raise Exception(f"メール送信失敗: {response.text}")

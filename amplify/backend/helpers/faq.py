@@ -1,12 +1,23 @@
+import os
 import json
 
-def get_faq_response(user_message):
-    try:
-        with open("faq.json", "r", encoding="utf-8") as file:
-            faq_data = json.load(file)
-        for entry in faq_data:
-            if entry["keyword"] in user_message:
-                return entry["answer"]
-        return "申し訳ありませんが、該当する回答が見つかりませんでした。"
-    except Exception as e:
-        return f"FAQデータの読み込み中にエラーが発生しました: {str(e)}"
+# faq.json の絶対パスを取得
+faq_path = os.path.join(os.path.dirname(__file__), "faq.json")
+
+# ファイルの存在を確認してデバッグ出力
+if not os.path.exists(faq_path):
+    raise FileNotFoundError(f"FAQファイルが見つかりません: {faq_path}")
+else:
+    print(f"FAQファイルのパス: {faq_path}")
+
+with open(faq_path, "r", encoding="utf-8") as file:
+    FAQ_DATA = json.load(file)
+
+def get_faq_response(message):
+    """
+    FAQデータに基づいて適切な応答を返す。
+    """
+    for faq in FAQ_DATA["faqs"]:
+        if faq["question"] in message:
+            return faq["answer"]
+    return "その質問についての情報はありません。採用担当者へお問い合わせください。"
