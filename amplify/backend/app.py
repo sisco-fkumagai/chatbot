@@ -305,8 +305,9 @@ async def chat(request: ChatRequest):
                 debug_log.append(f"【DEBUG-6】state更新後: {state}")
 
                 # 次のステップへ進む応答を返す
+                state["step"] = response_data.get("next_step", "suggest_dates")
                 return {
-                    "reply": f"{state['name']}さん、情報の提供ありがとうございます。「{state['date']}」の範囲で日程調整を進めます。",
+                    "reply": f"{state['name']}さん、情報の提供ありがとうございます。「{state['date']}」で進めてもよろしいでしょうか？",
                     "debug_log": debug_log,
                 }
 
