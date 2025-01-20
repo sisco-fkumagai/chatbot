@@ -52,6 +52,32 @@ conversation_state = {}
 FAQ_PATH = os.path.join(os.path.dirname(__file__), "helpers", "faq.json")
 faq_data = load_faq(FAQ_PATH)
 
+
+def insert_line_breaks(text):
+    """
+    テキストに改行を適切に挿入する。
+    - 句点ごとに改行を挿入。
+    - 番号付きリスト（1. や 2. など）の前後に改行を追加。
+    """
+    if not isinstance(text, str):
+        return text
+
+    # 初期テキストをログに記録
+    print(f"【DEBUG】改行挿入前: {text}")
+
+    # 句点（。）ごとに改行を追加。ただし、リスト番号は除外
+    text = re.sub(r'(?<!\d)\。', '。\n', text)
+
+    # 番号付きリスト（1. や 2. など）の後ろに改行を追加
+    text = re.sub(r'(\d+\.\s)', r'\n\1', text)
+
+    # 最終テキストをログに記録
+    print(f"【DEBUG】改行挿入後: {text}")
+
+    return text.strip()
+
+
+
 def parse_period(user_message):
     """
     ユーザー入力の期間表現を具体的な日付範囲に変換する。
@@ -188,6 +214,10 @@ async def chat(request: ChatRequest):
                     "reply": "サーバー内部エラーが発生しました。不明な応答形式です。",
                     "debug_log": debug_log,
                 }
+            
+            # 応答の生成箇所で改行を挿入
+            if "reply" in response_data:
+                response_data["reply"] = insert_line_breaks(response_data["reply"])
 
             # ステップ更新と応答送信
             state["step"] = response_data.get("next_step", "ask_details")
@@ -245,20 +275,27 @@ async def chat(request: ChatRequest):
                 "応答は出力形式に沿ってしてください。\n"
                 "出力形式: {\"next_step\": \"次のステップ\", \"reply\": \"応答文\", \"name\": \"名前\", \"university\": \"大学\", \"date\": \"希望日程\"}"
             )
-            chat_response = clean_response(chat_with_gpt(chat_prompt))
+            chat_response = chat_with_gpt(chat_prompt)
             debug_log.append(f"【DEBUG-5】ChatGPT応答: {chat_response}")
             
             try:
-                # ChatGPT応答のパース
-                response_data = clean_response(chat_response) if isinstance(chat_response, str) else chat_response
-                
+                # ChatGPT応答のクリーンアップ
+                cleaned_response = clean_response(chat_response)
+                debug_log.append(f"【DEBUG-5-1】クリーンアップ後の応答: {cleaned_response}")
+
+                # クリーンアップ後のJSONをパース
+                response_data = json.loads(cleaned_response) if isinstance(cleaned_response, str) else cleaned_response
+                debug_log.append(f"【DEBUG-5-2】JSONパース後のデータ: {response_data}")
+                         
                 # `reply`フィールドが再度JSON形式の場合の処理
-                if isinstance(response_data.get("reply"), str) and response_data["reply"].strip().startswith("{"):
+                if isinstance(response_data.get("reply"), str) and "{" in response_data["reply"]:
                     try:
-                        nested_data = json.loads(response_data["reply"])
+                        nested_data_start = response_data["reply"].find("{")
+                        nested_data = json.loads(response_data["reply"][nested_data_start:])
                         response_data.update(nested_data)
+                        debug_log.append(f"【DEBUG-5-3】埋め込まれたJSONを統合: {response_data}")
                     except json.JSONDecodeError as e:
-                        debug_log.append("【WARNING】応答内のreplyフィールドのJSON解析失敗")
+                        debug_log.append(f"【WARNING】埋め込まれたJSONの解析に失敗: {str(e)}")
 
                 # 必要な情報を抽出
                 name = response_data.get("name")
@@ -299,6 +336,10 @@ async def chat(request: ChatRequest):
                 debug_log.append(f"【DEBUG-5-3】抽出された大学: {state['university']}")
                 debug_log.append(f"【DEBUG-5-4】抽出された希望日程: {state['date']}")
                 debug_log.append(f"【DEBUG-6】state更新後: {state}")
+
+                # 応答の生成箇所で改行を挿入
+                if "reply" in response_data:
+                    response_data["reply"] = insert_line_breaks(response_data["reply"])
 
                 # 次のステップへ進む応答を返す
                 state["step"] = response_data.get("next_step", "suggest_dates")
@@ -349,7 +390,7 @@ async def chat(request: ChatRequest):
 
             state["suggested_dates"] = available_events
             # 番号付きで日程を提示
-            formatted_events = "\\n".join([
+            formatted_events = "\n".join([
                 f"{i + 1}. {format_date_with_weekday(event['start'], event['end'])}" for i, event in enumerate(available_events)
             ])
             debug_log.append(f"【DEBUG-8】提案された日程: {formatted_events}")
@@ -376,9 +417,12 @@ async def chat(request: ChatRequest):
             else:
                 debug_log.append("【ERROR】日程提案応答形式が不明です。")
                 return {"reply": "不明なエラーが発生しました。", "debug_log": debug_log}
+            
+            if "reply" in response_data:
+                response_data["reply"] = insert_line_breaks(response_data["reply"])
 
             state["step"] = "confirm_date"
-            return {"reply": response_data.get("reply")}
+            return {"reply": response_data.get("reply"),"debug_log": debug_log,}
 
 
         # 提案された日程から番号を選ぶステップ
@@ -410,6 +454,10 @@ async def chat(request: ChatRequest):
                     body=f"{state['name']}（{state['university']}）様の面接予約が完了しました。\n日時: {format_date_with_weekday(selected_event['start'], selected_event['end'])}",
                     to="kfuka@sisco-consulting.co.jp"
                 )
+
+                # 応答の生成箇所で改行を挿入
+                if "reply" in response_data:
+                    response_data["reply"] = insert_line_breaks(response_data["reply"])
 
                 # 予約完了のメッセージをユーザーに返す
                 debug_log.append(f"【DEBUG-15】メール送信完了: {state['name']}（{state['university']}）様の予約が確定しました。")
