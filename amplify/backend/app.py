@@ -399,6 +399,7 @@ async def chat(request: ChatRequest):
             chat_prompt_dates = (
                 f"以下の日程が見つかりました:\n{formatted_events}\n"
                 "ユーザーに番号で選んでもらうような応答文を生成してください。\n"
+                "リストの番号ごとに改行を含む形式で出力してください。\n"
                 "出力形式: {\"reply\": \"応答文\"}"
             )
             chat_response = clean_response(chat_with_gpt(chat_prompt_dates))
