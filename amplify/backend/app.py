@@ -245,7 +245,7 @@ async def chat(request: ChatRequest):
                 "応答は出力形式に沿ってしてください。\n"
                 "出力形式: {\"next_step\": \"次のステップ\", \"reply\": \"応答文\", \"name\": \"名前\", \"university\": \"大学\", \"date\": \"希望日程\"}"
             )
-            chat_response = chat_with_gpt(chat_prompt)
+            chat_response = clean_response(chat_with_gpt(chat_prompt))
             debug_log.append(f"【DEBUG-5】ChatGPT応答: {chat_response}")
             
             try:
@@ -257,7 +257,7 @@ async def chat(request: ChatRequest):
                     try:
                         nested_data = json.loads(response_data["reply"])
                         response_data.update(nested_data)
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as e:
                         debug_log.append("【WARNING】応答内のreplyフィールドのJSON解析失敗")
 
                 # 必要な情報を抽出
@@ -349,7 +349,7 @@ async def chat(request: ChatRequest):
 
             state["suggested_dates"] = available_events
             # 番号付きで日程を提示
-            formatted_events = "\n".join([
+            formatted_events = "\\n".join([
                 f"{i + 1}. {format_date_with_weekday(event['start'], event['end'])}" for i, event in enumerate(available_events)
             ])
             debug_log.append(f"【DEBUG-8】提案された日程: {formatted_events}")
@@ -360,7 +360,7 @@ async def chat(request: ChatRequest):
                 "ユーザーに番号で選んでもらうような応答文を生成してください。\n"
                 "出力形式: {\"reply\": \"応答文\"}"
             )
-            chat_response = chat_with_gpt(chat_prompt_dates)
+            chat_response = clean_response(chat_with_gpt(chat_prompt_dates))
             debug_log.append(f"【DEBUG-9】ChatGPT応答: {chat_response}")
             if isinstance(chat_response, str):
                 try:
