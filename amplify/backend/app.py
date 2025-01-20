@@ -54,37 +54,35 @@ faq_data = load_faq(FAQ_PATH)
 
 def parse_period(user_message):
     """
-    ユーザーの入力から希望日程を解析し、具体的な日付範囲を返します。
+    ユーザー入力の期間表現を具体的な日付範囲に変換する。
     """
-    today = datetime.now(JST)
-    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
-    day_offset = {day: i for i, day in enumerate(weekdays)}
+    today = datetime.today()
+    weekdays = {"月": 0, "火": 1, "水": 2, "木": 3, "金": 4, "土": 5, "日": 6}
 
-    # 今週、来週の処理
-    if "今週" in user_message:
-        start_date = today - timedelta(days=today.weekday())  # 今週の月曜
-        end_date = start_date + timedelta(days=6)  # 今週の日曜
-    elif "来週" in user_message:
-        start_date = today + timedelta(days=(7 - today.weekday()))  # 来週の月曜
-        end_date = start_date + timedelta(days=6)  # 来週の日曜
-
-    # 曜日が指定された場合
-    elif any(day in user_message for day in weekdays):
-        for day in weekdays:
-            if day in user_message:
-                day_index = day_offset[day]
-                if "来週" in user_message:
-                    start_date = today + timedelta(days=(7 + day_index - today.weekday()) % 7)
-                else:
-                    start_date = today + timedelta(days=(day_index - today.weekday()) % 7)
-                end_date = start_date
-                break
-    # デフォルト: 今週の範囲
-    else:
+    if "来週" in user_message:
+        start_date = today + timedelta(days=(7 - today.weekday()))
+        end_date = start_date + timedelta(days=6)
+    elif "今週" in user_message:
         start_date = today - timedelta(days=today.weekday())
         end_date = start_date + timedelta(days=6)
+    elif "から" in user_message and "まで" in user_message:
+        # 例: "今週の木曜から金曜"
+        parts = user_message.split("から")
+        start_day = parts[0][-2:]
+        end_day = parts[1][:2]
+
+        if start_day in weekdays and end_day in weekdays:
+            start_date = today - timedelta(days=today.weekday()) + timedelta(days=weekdays[start_day])
+            end_date = today - timedelta(days=today.weekday()) + timedelta(days=weekdays[end_day])
+        else:
+            raise ValueError("日付範囲の解析に失敗しました")
+    else:
+        # デフォルトは1週間
+        start_date = today
+        end_date = today + timedelta(days=7)
 
     return start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+
 
 def format_date_with_weekday(start_time, end_time):
     """
@@ -238,9 +236,8 @@ async def chat(request: ChatRequest):
             chat_response = chat_with_gpt(chat_prompt)
             debug_log.append(f"【DEBUG-5】ChatGPT応答: {chat_response}")
             
-            # ChatGPT応答のパース
             try:
-                # ChatGPT応答の解析
+                # ChatGPT応答のパース
                 if isinstance(chat_response, str):
                     response_data = json.loads(chat_response)
                 elif isinstance(chat_response, dict):
@@ -280,13 +277,25 @@ async def chat(request: ChatRequest):
                         ),
                         "debug_log": debug_log,
                     }
+                
+                # 日程解析（期間表現を具体的な日付範囲に変換）
+                try:
+                    start_date, end_date = parse_period(date)
+                    state["date"] = f"{start_date} ~ {end_date}"  # 具体的な日付範囲を記録
+                    debug_log.append(f"【DEBUG-7】解析された日程範囲: {state['date']}")
+                except Exception as e:
+                    debug_log.append(f"【ERROR】日程解析失敗: {str(e)}")
+                    return {
+                        "reply": "希望日程の解析に失敗しました。具体的な日程を教えてください。",
+                        "debug_log": debug_log,
+                    }
 
                 # `state` の更新
                 state.update({
                     "name": name,
                     "university": university,
-                    "date": date,
-                    "step": next_step,
+                    "date": state["date"],  # 解析された日程範囲を保持
+                    "step": next_step,  # 必ず次のステップを'suggest_dates'に設定
                 })
 
                 # デバッグログに更新内容を記録
@@ -297,7 +306,7 @@ async def chat(request: ChatRequest):
 
                 # 次のステップへ進む応答を返す
                 return {
-                    "reply": response_data.get("reply", "次のステップへ進みます。"),
+                    "reply": f"{state['name']}さん、情報の提供ありがとうございます。「{state['date']}」の範囲で日程調整を進めます。",
                     "debug_log": debug_log,
                 }
 
