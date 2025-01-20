@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,7 +13,6 @@ from helpers.faq import load_faq, search_faq
 import logging
 from pytz import timezone as pytz_timezone
 import uuid
-import re
 
 # 環境変数をロード
 load_dotenv()
@@ -108,8 +108,20 @@ def add_event_to_calendar_jst(start_time, duration_hours, title):
     # JSTに変換
     start_time_jst = datetime.fromisoformat(start_time).astimezone(JST).isoformat()
     end_time_jst = (datetime.fromisoformat(start_time) + timedelta(hours=duration_hours)).astimezone(JST).isoformat()
-
     add_event_to_calendar(start_time_jst, duration_hours, title)
+
+def clean_response(response):
+    """
+    ChatGPTの応答をクリーンアップして、不正な制御文字やフォーマットの問題を解消する。
+    """
+    if isinstance(response, dict):
+        return {k: clean_response(v) for k, v in response.items()}
+    elif isinstance(response, str):
+        response = re.sub(r'[\x00-\x1F\x7F]', '', response)
+        response = response.strip()
+        return response
+    return response
+
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
@@ -238,12 +250,7 @@ async def chat(request: ChatRequest):
             
             try:
                 # ChatGPT応答のパース
-                if isinstance(chat_response, str):
-                    response_data = json.loads(chat_response)
-                elif isinstance(chat_response, dict):
-                    response_data = chat_response
-                else:
-                    raise ValueError(f"Unexpected response type: {type(chat_response)}")
+                response_data = clean_response(chat_response) if isinstance(chat_response, str) else chat_response
                 
                 # `reply`フィールドが再度JSON形式の場合の処理
                 if isinstance(response_data.get("reply"), str) and response_data["reply"].strip().startswith("{"):
@@ -261,20 +268,9 @@ async def chat(request: ChatRequest):
 
                 # 情報が不足しているかチェック
                 if not all([name, university, date]):
-                    missing_info = []
-                    if not name:
-                        missing_info.append("名前")
-                    if not university:
-                        missing_info.append("大学")
-                    if not date:
-                        missing_info.append("希望日程")
-
-                    debug_log.append(f"【WARNING】以下の情報が不足しています: {', '.join(missing_info)}")
+                    debug_log.append(f"【WARNING】情報が不足しています: 名前={name}, 大学={university}, 希望日程={date}")
                     return {
-                        "reply": response_data.get(
-                            "reply",
-                            "情報が不足しています。もう一度お教えいただけますか？"
-                        ),
+                        "reply": response_data.get("reply", "情報が不足しています。もう一度教えてください。"),
                         "debug_log": debug_log,
                     }
                 
