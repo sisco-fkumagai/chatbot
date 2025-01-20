@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 import openai
 import logging
+import json
 
 # 環境変数をロード
 load_dotenv(override=True)
@@ -43,17 +44,14 @@ def chat_with_gpt(prompt, system_message=None):
             ],
         )
 
-        # レスポンスをデバッグログに記録
-        logger.debug(f"OpenAI API Response: {response}")
+        # 応答を辞書形式にパース
+        content = response['choices'][0]['message']['content']
+        try:
+            parsed_response = json.loads(content)
+            return parsed_response  # 辞書を返す
+        except json.JSONDecodeError:
+            # 応答が JSON 形式でない場合はそのまま返す
+            return {"reply": content, "next_step": None}
 
-        # 必要な部分を整形して返す
-        reply = response["choices"][0]["message"]["content"].strip()
-        return {"reply": reply, "raw_response": response}
-    
-    except openai.error.OpenAIError as e:
-        logger.error(f"OpenAI API Error: {str(e)}")
-        return {"error": f"OpenAI API エラーが発生しました: {str(e)}"}
-        
     except Exception as e:
-        logger.error(f"Unexpected Error: {str(e)}")
-        return f"エラーが発生しました: {str(e)}"
+        return {"reply": f"エラーが発生しました: {str(e)}", "next_step": None}

@@ -61,13 +61,24 @@ const ChatBot = () => {
                 })),
                 user_id: userId, // ユーザーIDを送信
             });
-            const chatResponse = response.data.reply;
+
+            const chatResponse = response.data.reply; // 応答文
 
             // デバッグログを表示
             if (response.data.debug_log) {
                 console.group("デバッグログ");
                 response.data.debug_log.forEach((log) => console.log(log));
                 console.groupEnd();
+            }
+
+            // `reply`をJSON文字列としてパース（必要なら）
+            if (typeof chatResponse === 'string' && chatResponse.trim().startsWith("{")) {
+                try {
+                    const parsedResponse = JSON.parse(chatResponse);
+                    chatResponse = parsedResponse.reply; // ネストされた`reply`を取得
+                } catch (error) {
+                    console.error("応答のJSONパースに失敗しました:", error);
+                }
             }
 
             // 日程調整の応答

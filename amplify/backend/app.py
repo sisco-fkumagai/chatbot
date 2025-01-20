@@ -12,6 +12,7 @@ from helpers.faq import load_faq, search_faq
 import logging
 from pytz import timezone as pytz_timezone
 import uuid
+import re
 
 # 環境変数をロード
 load_dotenv()
@@ -52,19 +53,37 @@ FAQ_PATH = os.path.join(os.path.dirname(__file__), "helpers", "faq.json")
 faq_data = load_faq(FAQ_PATH)
 
 def parse_period(user_message):
-    today = datetime.today()
-    if "来週" in user_message:
-        start_date = today + timedelta(days=(7 - today.weekday()))
-        end_date = start_date + timedelta(days=6)
-    elif "今月" in user_message:
-        start_date = today.replace(day=1)
-        end_date = today.replace(day=1) + timedelta(days=30)
-    elif "翌月" in user_message:
-        start_date = today.replace(day=1) + timedelta(days=30)
-        end_date = start_date + timedelta(days=30)
+    """
+    ユーザーの入力から希望日程を解析し、具体的な日付範囲を返します。
+    """
+    today = datetime.now(JST)
+    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+    day_offset = {day: i for i, day in enumerate(weekdays)}
+
+    # 今週、来週の処理
+    if "今週" in user_message:
+        start_date = today - timedelta(days=today.weekday())  # 今週の月曜
+        end_date = start_date + timedelta(days=6)  # 今週の日曜
+    elif "来週" in user_message:
+        start_date = today + timedelta(days=(7 - today.weekday()))  # 来週の月曜
+        end_date = start_date + timedelta(days=6)  # 来週の日曜
+
+    # 曜日が指定された場合
+    elif any(day in user_message for day in weekdays):
+        for day in weekdays:
+            if day in user_message:
+                day_index = day_offset[day]
+                if "来週" in user_message:
+                    start_date = today + timedelta(days=(7 + day_index - today.weekday()) % 7)
+                else:
+                    start_date = today + timedelta(days=(day_index - today.weekday()) % 7)
+                end_date = start_date
+                break
+    # デフォルト: 今週の範囲
     else:
-        start_date = today
-        end_date = today + timedelta(days=7)
+        start_date = today - timedelta(days=today.weekday())
+        end_date = start_date + timedelta(days=6)
+
     return start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
 
 def format_date_with_weekday(start_time, end_time):
@@ -139,20 +158,34 @@ async def chat(request: ChatRequest):
             )
             chat_response = chat_with_gpt(chat_prompt)
             debug_log.append(f"【DEBUG-4-1】ChatGPT応答: {chat_response}")
-            try:
-                response_data = json.loads(chat_response)
-            except json.JSONDecodeError as e:
-                debug_log.append(f"【ERROR】JSON解析失敗: {str(e)}")
-                debug_log.append(f"【DEBUG-4-2】ChatGPT生応答: {chat_response}")
+            
+            # 応答が辞書の場合はそのまま利用
+            if isinstance(chat_response, dict):
+                response_data = chat_response
+            elif isinstance(chat_response, str):
+                # 応答が文字列の場合はパースを試みる
+                try:
+                    response_data = json.loads(chat_response)
+                except json.JSONDecodeError as e:
+                    debug_log.append(f"【ERROR】JSON解析失敗: {str(e)}")
+                    return {
+                        "reply": "サーバー内部エラーが発生しました。応答を解析できませんでした。",
+                        "debug_log": debug_log,
+                    }
+            else:
+                debug_log.append("【ERROR】ChatGPT応答が不明な形式です。")
                 return {
-                    "reply": "サーバー内部エラーが発生しました。応答を解析できませんでした。",
-                    "debug_log": debug_log
+                    "reply": "サーバー内部エラーが発生しました。不明な応答形式です。",
+                    "debug_log": debug_log,
                 }
 
             # ステップ更新と応答送信
             state["step"] = response_data.get("next_step", "ask_details")
-            debug_log.append(f"【DEBU-4-3】現在のステップ: {state['step']}")
-            return {"reply": response_data.get("reply", "選択肢を再度教えてください。"), "debug_log": debug_log}
+            debug_log.append(f"【DEBUG-4-2】次のステップ: {state['step']}")
+            return {
+                "reply": response_data.get("reply", "選択肢を再度教えてください。"),
+                "debug_log": debug_log
+            }
         
         # FAQ処理ステップ
         if state["step"] == "faq_handling":
@@ -173,7 +206,22 @@ async def chat(request: ChatRequest):
                     "出力形式: {\"reply\": \"応答文\"}"
                 )
                 chat_response = chat_with_gpt(chat_prompt_faq)
-                response_data = json.loads(chat_response)
+
+                # ChatGPTの応答をパース
+                if isinstance(chat_response, str):
+                    try:
+                        response_data = json.loads(chat_response)
+                    except json.JSONDecodeError as e:
+                        debug_log.append(f"【ERROR】FAQ JSON解析失敗: {str(e)}")
+                        return {
+                            "reply": "サーバー内部エラーが発生しました。",
+                            "debug_log": debug_log,
+                        }
+                elif isinstance(chat_response, dict):
+                    response_data = chat_response
+                else:
+                    debug_log.append("【ERROR】FAQ応答形式が不明です。")
+                    return {"reply": "不明なエラーが発生しました。", "debug_log": debug_log}
 
                 return {"reply": response_data.get("reply", "もう一度質問を入力してください。"), "debug_log": debug_log}
         
@@ -189,23 +237,83 @@ async def chat(request: ChatRequest):
             )
             chat_response = chat_with_gpt(chat_prompt)
             debug_log.append(f"【DEBUG-5】ChatGPT応答: {chat_response}")
-            response_data = json.loads(chat_response)
             
-            # 情報を更新
-            state.update({
-                "name": response_data.get("name", state["name"]),
-                "university": response_data.get("university", state["university"]),
-                "date": response_data.get("date", state["date"]),
-            })
+            # ChatGPT応答のパース
+            try:
+                # ChatGPT応答の解析
+                if isinstance(chat_response, str):
+                    response_data = json.loads(chat_response)
+                elif isinstance(chat_response, dict):
+                    response_data = chat_response
+                else:
+                    raise ValueError(f"Unexpected response type: {type(chat_response)}")
+                
+                # `reply`フィールドが再度JSON形式の場合の処理
+                if isinstance(response_data.get("reply"), str) and response_data["reply"].strip().startswith("{"):
+                    try:
+                        nested_data = json.loads(response_data["reply"])
+                        response_data.update(nested_data)
+                    except json.JSONDecodeError:
+                        debug_log.append("【WARNING】応答内のreplyフィールドのJSON解析失敗")
 
-            # 希望日程が曖昧な場合でも次に進むようにする
-            if state["name"] and state["university"] and state["date"]:
-                state["step"] = response_data.get("next_step", "suggest_dates")
-                return {"reply": f"{state['name']}さん、情報の提供ありがとうございます。承知しました。{state['date']}で進めてもよろしいでしょうか？"}
-            else:
-                # 情報が不足している場合は不足分を聞き返す
-                state["step"] = response_data.get("next_step", "ask_details")
-                return {"reply": response_data.get("reply", "もう一度教えてください。")}
+                # 必要な情報を抽出
+                name = response_data.get("name")
+                university = response_data.get("university")
+                date = response_data.get("date")
+                next_step = response_data.get("next_step", "suggest_dates")
+
+                # 情報が不足しているかチェック
+                if not all([name, university, date]):
+                    missing_info = []
+                    if not name:
+                        missing_info.append("名前")
+                    if not university:
+                        missing_info.append("大学")
+                    if not date:
+                        missing_info.append("希望日程")
+
+                    debug_log.append(f"【WARNING】以下の情報が不足しています: {', '.join(missing_info)}")
+                    return {
+                        "reply": response_data.get(
+                            "reply",
+                            "情報が不足しています。もう一度お教えいただけますか？"
+                        ),
+                        "debug_log": debug_log,
+                    }
+
+                # `state` の更新
+                state.update({
+                    "name": name,
+                    "university": university,
+                    "date": date,
+                    "step": next_step,
+                })
+
+                # デバッグログに更新内容を記録
+                debug_log.append(f"【DEBUG-5-2】抽出された名前: {state['name']}")
+                debug_log.append(f"【DEBUG-5-3】抽出された大学: {state['university']}")
+                debug_log.append(f"【DEBUG-5-4】抽出された希望日程: {state['date']}")
+                debug_log.append(f"【DEBUG-6】state更新後: {state}")
+
+                # 次のステップへ進む応答を返す
+                return {
+                    "reply": response_data.get("reply", "次のステップへ進みます。"),
+                    "debug_log": debug_log,
+                }
+
+            except json.JSONDecodeError as e:
+                debug_log.append(f"【ERROR】JSON解析失敗: {str(e)}")
+                return {
+                    "reply": "内部エラーが発生しました。応答の解析に失敗しました。",
+                    "debug_log": debug_log,
+                }
+            except Exception as e:
+                debug_log.append(f"【ERROR】予期せぬエラー: {str(e)}")
+                return {
+                    "reply": "予期せぬエラーが発生しました。再度お試しください。",
+                    "debug_log": debug_log,
+                }
+
 
         # 日程を提案するステップ
         if state["step"] == "suggest_dates":
@@ -248,7 +356,20 @@ async def chat(request: ChatRequest):
             )
             chat_response = chat_with_gpt(chat_prompt_dates)
             debug_log.append(f"【DEBUG-9】ChatGPT応答: {chat_response}")
-            response_data = json.loads(chat_response)
+            if isinstance(chat_response, str):
+                try:
+                    response_data = json.loads(chat_response)
+                except json.JSONDecodeError as e:
+                    debug_log.append(f"【ERROR】日程提案 JSON解析失敗: {str(e)}")
+                    return {
+                        "reply": "サーバー内部エラーが発生しました。",
+                        "debug_log": debug_log,
+                    }
+            elif isinstance(chat_response, dict):
+                response_data = chat_response
+            else:
+                debug_log.append("【ERROR】日程提案応答形式が不明です。")
+                return {"reply": "不明なエラーが発生しました。", "debug_log": debug_log}
 
             state["step"] = "confirm_date"
             return {"reply": response_data.get("reply")}
@@ -256,6 +377,7 @@ async def chat(request: ChatRequest):
 
         # 提案された日程から番号を選ぶステップ
         if state["step"] == "confirm_date":
+            # ユーザーが選択した番号を取得
             selected_index = int(request.message.strip()) - 1
             if 0 <= selected_index < len(state["suggested_dates"]):
                         
