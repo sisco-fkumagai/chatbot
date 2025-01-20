@@ -7,7 +7,9 @@ function App() {
   return (
     <div className="App">
       <Header />
-      <ChatBot />
+      <main>
+        <ChatBot />
+      </main>
     </div>
   );
 }

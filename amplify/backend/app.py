@@ -11,6 +11,7 @@ from helpers.gmail import send_email
 from helpers.faq import load_faq, search_faq
 import logging
 from pytz import timezone as pytz_timezone
+import uuid
 
 # 環境変数をロード
 load_dotenv()
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 class ChatRequest(BaseModel):
     message: str
     context: list
+    user_id: str
 
 # JSTタイムゾーン設定
 JST = pytz_timezone("Asia/Tokyo")
@@ -94,26 +96,32 @@ def add_event_to_calendar_jst(start_time, duration_hours, title):
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
+    debug_log = []  # デバッグ情報を収集するリスト
+
     try:
         question = request.message.strip()
-        logger.debug(f"ユーザーの質問: {question}")
+        debug_log.append(f"【DEBUG-1】ユーザーの応答: {question}")
 
         # ユーザーIDを取得
-        if isinstance(request.context, dict) and "user_id" in request.context:
-            user_id = request.context["user_id"]
-        else:
-            user_id = "guest"  # デフォルト値（変更する場合は一意の識別子を適用）
-        logger.debug(f"【DEBUG-1】ユーザーID: {user_id}")
+        user_id = request.user_id
+        debug_log.append(f"【DEBUG-2】ユーザーID: {user_id}")
 
         # 会話状態の初期化
         if user_id not in conversation_state:
-            conversation_state[user_id] = {"step": "initial", "context": [], "name": None, "university": None, "date": None, "suggested_dates": []}
+            conversation_state[user_id] = {
+                "step": "initial",
+                "context": [],
+                "name": None,
+                "university": None,
+                "date": None,
+                "suggested_dates": [],
+            }
         state = conversation_state[user_id]
-        logger.debug(f"【DEBUG-2】現在のステップ: {state['step']}")
+        debug_log.append(f"【DEBUG-3】現在のステップ: {state['step']}")
 
         # 現在の日付を取得
         today = datetime.now().strftime("%Y-%m-%d")
-        logger.debug(f"【DEBUG-3】今日の日付: {today}")
+        debug_log.append(f"【DEBUG-4】今日の日付: {today}")
 
         # 初期ステップ: 名前、大学、希望日程を聞く
         if state["step"] == "initial":
@@ -130,15 +138,19 @@ async def chat(request: ChatRequest):
                 "出力形式: {\"next_step\": \"次のステップ\", \"reply\": \"応答文\"}"
             )
             chat_response = chat_with_gpt(chat_prompt)
-            response_data = json.loads(chat_response)
+            try:
+                response_data = json.loads(chat_response)
+            except json.JSONDecodeError:
+                debug_log.append("【ERROR】ChatGPT応答の解析に失敗しました。")
+                return {"reply": "サーバー内部エラーが発生しました。", "debug_log": debug_log}
 
             # ステップを確実に更新
             state["step"] = response_data.get("next_step", "ask_details")
-            logger.debug(f"【DEBUG-4-1】ChatGPT応答: {chat_response}")
-            logger.debug(f"【DEBU-5】現在のステップ: {state['step']}")
+            debug_log.append(f"【DEBUG-5-1】ChatGPT応答: {chat_response}")
+            debug_log.append(f"【DEBU-6】現在のステップ: {state['step']}")
 
             # 応答を返却
-            return {"reply": response_data.get("reply", "選択肢を再度教えてください。")}
+            return {"reply": response_data.get("reply", "選択肢を再度教えてください。"), "debug_log": debug_log}
         
         # FAQ処理ステップ
         if state["step"] == "faq_handling":
@@ -161,7 +173,7 @@ async def chat(request: ChatRequest):
                 chat_response = chat_with_gpt(chat_prompt_faq)
                 response_data = json.loads(chat_response)
 
-                return {"reply": response_data.get("reply", "もう一度質問を入力してください。")}
+                return {"reply": response_data.get("reply", "もう一度質問を入力してください。"), "debug_log": debug_log}
         
         # 名前、大学、希望日程を抽出するステップ
         if state["step"] == "ask_details":
@@ -174,7 +186,7 @@ async def chat(request: ChatRequest):
                 "出力形式: {\"next_step\": \"次のステップ\", \"reply\": \"応答文\", \"name\": \"名前\", \"university\": \"大学\", \"date\": \"希望日程\"}"
             )
             chat_response = chat_with_gpt(chat_prompt)
-            logger.debug(f"【DEBUG-4-2】ChatGPT応答: {chat_response}")
+            debug_log.append(f"【DEBUG-5-2】ChatGPT応答: {chat_response}")
             response_data = json.loads(chat_response)
             
             # 情報を更新
@@ -214,17 +226,17 @@ async def chat(request: ChatRequest):
 
             # 仮予約作成と同時に「空き」イベントを削除
             for event in available_events:
-                logger.debug(f"【DEBUG-7】削除対象イベントID: {event['id']}")  # 削除対象をログに記録
+                debug_log.append(f"【DEBUG-7】削除対象イベントID: {event['id']}")  # 削除対象をログに記録
                 delete_event_from_calendar(event["id"])  # 同じ日程の「空き」を削除
                 add_event_to_calendar(event["start"], 1.5, "仮予約")  # 仮予約を作成
-                logger.debug(f"【DEBUG-8】仮予約作成: {event['start']} ~ {event['end']}")
+                debug_log.append(f"【DEBUG-8】仮予約作成: {event['start']} ~ {event['end']}")
 
             state["suggested_dates"] = available_events
             # 番号付きで日程を提示
             formatted_events = "\n".join([
                 f"{i + 1}. {format_date_with_weekday(event['start'], event['end'])}" for i, event in enumerate(available_events)
             ])
-            logger.debug(f"【DEBUG-9】提案された日程: {formatted_events}")
+            debug_log.append(f"【DEBUG-9】提案された日程: {formatted_events}")
 
             # ChatGPTに応答文を生成させる
             chat_prompt_dates = (
@@ -233,7 +245,7 @@ async def chat(request: ChatRequest):
                 "出力形式: {\"reply\": \"応答文\"}"
             )
             chat_response = chat_with_gpt(chat_prompt_dates)
-            logger.debug(f"【DEBUG-4-2】ChatGPT応答: {chat_response}")
+            debug_log.append(f"【DEBUG-5-3】ChatGPT応答: {chat_response}")
             response_data = json.loads(chat_response)
 
             state["step"] = "confirm_date"
@@ -249,18 +261,18 @@ async def chat(request: ChatRequest):
                 selected_event = state["suggested_dates"][selected_index]
                 # 日程を確定し、「仮予約」を削除して「空き」を再作成
                 for i, event in enumerate(state["suggested_dates"]):
-                    logger.debug(f"【DEBUG-10】選択された日程: {event}")
+                    debug_log.append(f"【DEBUG-10】選択された日程: {event}")
                     # 選択された日程は「仮予約」を削除して予約完了イベントを作成
                     delete_event_from_calendar(event["id"])
-                    logger.debug(f"【DEBUG-11】削除対象イベント: {event['id']}")
+                    debug_log.append(f"【DEBUG-11】削除対象イベント: {event['id']}")
                     if i == selected_index:
                         add_event_to_calendar(event["start"], 1.5, f"{state['name']} ({state['university']})")
-                        logger.debug(f"【DEBUG-12】予約完了イベント作成: {event['start']} ~ {event['end']}")
+                        debug_log.append(f"【DEBUG-12】予約完了イベント作成: {event['start']} ~ {event['end']}")
                     else:
-                        logger.debug(f"【DEBUG-13】非選択の日程: {event}")
+                        debug_log.append(f"【DEBUG-13】非選択の日程: {event}")
                         # 他の日程は「仮予約」を削除して「空き」イベントを作成
                         add_event_to_calendar(event["start"], 1.5, "空き")
-                        logger.debug(f"【DEBUG-14】仮予約削除および空き再作成: {event['start']} ~ {event['end']}")
+                        debug_log.append(f"【DEBUG-14】仮予約削除および空き再作成: {event['start']} ~ {event['end']}")
 
                 # メール送信
                 send_email(
@@ -269,12 +281,21 @@ async def chat(request: ChatRequest):
                     to="kfuka@sisco-consulting.co.jp"
                 )
 
-                return {"reply": f"面接予約を以下の日程で完了しました:\n{format_date_with_weekday(selected_event['start'], selected_event['end'])}"}
+                # 予約完了のメッセージをユーザーに返す
+                debug_log.append(f"【DEBUG-15】メール送信完了: {state['name']}（{state['university']}）様の予約が確定しました。")
+                return {
+                    "reply": f"面接予約を以下の日程で完了しました:\n{format_date_with_weekday(selected_event['start'], selected_event['end'])}",
+                    "debug_log": debug_log  # デバッグ情報を含めて返す
+                }
             else:
-                return {"reply": "選択した番号が無効です。もう一度番号を入力してください。"}
-
-        return {"reply": "処理を進めることができませんでした。再度お試しください。"}
+                return {
+                    "reply": "選択した番号が無効です。もう一度番号を入力してください。",
+                    "debug_log": debug_log
+                }
 
     except Exception as e:
-        logger.error(f"【ERROR】エラーが発生しました: {e}")
-        return {"reply": "内部エラーが発生しました。もう一度お試しください。"}
+        debug_log.append(f"エラー: {str(e)}")
+        return {
+            "reply": "内部エラーが発生しました。もう一度お試しください。",
+            "debug_log": debug_log  # エラー時のデバッグ情報を含める
+        }

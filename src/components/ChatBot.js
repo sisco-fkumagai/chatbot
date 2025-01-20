@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import MessageBubble from './MessageBubble';
+import { v4 as uuidv4 } from 'uuid'; // ユニークID生成用
 
 const ChatBot = () => {
     const [messages, setMessages] = useState([]);
@@ -8,17 +9,22 @@ const ChatBot = () => {
     const [isComposing, setIsComposing] = useState(false); // 変換中かどうかを追跡
     const [isLoading, setIsLoading] = useState(false); // メッセージ送信中の状態
     const [isInitialLoading, setIsInitialLoading] = useState(true); // 初期メッセージのローディング状態
+    const [userId, setUserId] = useState(localStorage.getItem('user_id') || uuidv4()); // ユーザーIDを保持
 
     // 環境変数からバックエンドAPI URLを取得
     const apiUrl = process.env.REACT_APP_BACKEND_API_URL;
-    //console.log("API URL:", process.env.REACT_APP_BACKEND_API_URL);
+
+    useEffect(() => {
+        // ユーザーIDをローカルストレージに保存
+        localStorage.setItem('user_id', userId);
+    }, [userId]);
 
     // 初期化処理
     useEffect(() => {
         const initializeChatBot = async () => {
             try {
                 // 初期メッセージのローディング中
-                await new Promise((resolve) => setTimeout(resolve, 2000)); // ダミーの遅延
+                await new Promise((resolve) => setTimeout(resolve, 1000)); // ダミーの遅延
 
                 // 初期メッセージを設定
                 const initialMessage = {
@@ -53,8 +59,16 @@ const ChatBot = () => {
                     role: msg.role,
                     content: msg.content,
                 })),
+                user_id: userId, // ユーザーIDを送信
             });
             const chatResponse = response.data.reply;
+
+            // デバッグログを表示
+            if (response.data.debug_log) {
+                console.group("デバッグログ");
+                response.data.debug_log.forEach((log) => console.log(log));
+                console.groupEnd();
+            }
 
             // 日程調整の応答
             if (chatResponse.includes("候補日程")) {
