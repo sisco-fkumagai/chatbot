@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 class ChatRequest(BaseModel):
     message: str
     context: list
-    user_id: str
+    user_id: str = None
 
 # JSTタイムゾーン設定
 JST = pytz_timezone("Asia/Tokyo")
@@ -99,12 +99,9 @@ async def chat(request: ChatRequest):
     debug_log = []  # デバッグ情報を収集するリスト
 
     try:
-        question = request.message.strip()
-        debug_log.append(f"【DEBUG-1】ユーザーの応答: {question}")
-
         # ユーザーIDを取得
-        user_id = request.user_id
-        debug_log.append(f"【DEBUG-2】ユーザーID: {user_id}")
+        user_id = request.user_id or str(uuid.uuid4())
+        debug_log.append(f"【DEBUG-1】ユーザーID: {user_id}")
 
         # 会話状態の初期化
         if user_id not in conversation_state:
@@ -117,11 +114,14 @@ async def chat(request: ChatRequest):
                 "suggested_dates": [],
             }
         state = conversation_state[user_id]
-        debug_log.append(f"【DEBUG-3】現在のステップ: {state['step']}")
+        #debug_log.append(f"【DEBUG-3】現在のステップ: {state['step']}")
+
+        question = request.message.strip()
+        debug_log.append(f"【DEBUG-2】ユーザーの応答: {question}")
 
         # 現在の日付を取得
         today = datetime.now().strftime("%Y-%m-%d")
-        debug_log.append(f"【DEBUG-4】今日の日付: {today}")
+        debug_log.append(f"【DEBUG-3】今日の日付: {today}")
 
         # 初期ステップ: 名前、大学、希望日程を聞く
         if state["step"] == "initial":
@@ -138,18 +138,20 @@ async def chat(request: ChatRequest):
                 "出力形式: {\"next_step\": \"次のステップ\", \"reply\": \"応答文\"}"
             )
             chat_response = chat_with_gpt(chat_prompt)
+            debug_log.append(f"【DEBUG-4-1】ChatGPT応答: {chat_response}")
             try:
                 response_data = json.loads(chat_response)
-            except json.JSONDecodeError:
-                debug_log.append("【ERROR】ChatGPT応答の解析に失敗しました。")
-                return {"reply": "サーバー内部エラーが発生しました。", "debug_log": debug_log}
+            except json.JSONDecodeError as e:
+                debug_log.append(f"【ERROR】JSON解析失敗: {str(e)}")
+                debug_log.append(f"【DEBUG-4-2】ChatGPT生応答: {chat_response}")
+                return {
+                    "reply": "サーバー内部エラーが発生しました。応答を解析できませんでした。",
+                    "debug_log": debug_log
+                }
 
-            # ステップを確実に更新
+            # ステップ更新と応答送信
             state["step"] = response_data.get("next_step", "ask_details")
-            debug_log.append(f"【DEBUG-5-1】ChatGPT応答: {chat_response}")
-            debug_log.append(f"【DEBU-6】現在のステップ: {state['step']}")
-
-            # 応答を返却
+            debug_log.append(f"【DEBU-4-3】現在のステップ: {state['step']}")
             return {"reply": response_data.get("reply", "選択肢を再度教えてください。"), "debug_log": debug_log}
         
         # FAQ処理ステップ
@@ -186,7 +188,7 @@ async def chat(request: ChatRequest):
                 "出力形式: {\"next_step\": \"次のステップ\", \"reply\": \"応答文\", \"name\": \"名前\", \"university\": \"大学\", \"date\": \"希望日程\"}"
             )
             chat_response = chat_with_gpt(chat_prompt)
-            debug_log.append(f"【DEBUG-5-2】ChatGPT応答: {chat_response}")
+            debug_log.append(f"【DEBUG-5】ChatGPT応答: {chat_response}")
             response_data = json.loads(chat_response)
             
             # 情報を更新
@@ -226,17 +228,17 @@ async def chat(request: ChatRequest):
 
             # 仮予約作成と同時に「空き」イベントを削除
             for event in available_events:
-                debug_log.append(f"【DEBUG-7】削除対象イベントID: {event['id']}")  # 削除対象をログに記録
+                debug_log.append(f"【DEBUG-6】削除対象イベントID: {event['id']}")  # 削除対象をログに記録
                 delete_event_from_calendar(event["id"])  # 同じ日程の「空き」を削除
                 add_event_to_calendar(event["start"], 1.5, "仮予約")  # 仮予約を作成
-                debug_log.append(f"【DEBUG-8】仮予約作成: {event['start']} ~ {event['end']}")
+                debug_log.append(f"【DEBUG-7】仮予約作成: {event['start']} ~ {event['end']}")
 
             state["suggested_dates"] = available_events
             # 番号付きで日程を提示
             formatted_events = "\n".join([
                 f"{i + 1}. {format_date_with_weekday(event['start'], event['end'])}" for i, event in enumerate(available_events)
             ])
-            debug_log.append(f"【DEBUG-9】提案された日程: {formatted_events}")
+            debug_log.append(f"【DEBUG-8】提案された日程: {formatted_events}")
 
             # ChatGPTに応答文を生成させる
             chat_prompt_dates = (
@@ -245,7 +247,7 @@ async def chat(request: ChatRequest):
                 "出力形式: {\"reply\": \"応答文\"}"
             )
             chat_response = chat_with_gpt(chat_prompt_dates)
-            debug_log.append(f"【DEBUG-5-3】ChatGPT応答: {chat_response}")
+            debug_log.append(f"【DEBUG-9】ChatGPT応答: {chat_response}")
             response_data = json.loads(chat_response)
 
             state["step"] = "confirm_date"
