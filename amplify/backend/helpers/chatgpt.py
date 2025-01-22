@@ -9,6 +9,8 @@ load_dotenv(override=True)
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+logging.debug(f"API: {openai.api_key}")
+
 # ログ設定
 logging.basicConfig(
     level=logging.DEBUG,

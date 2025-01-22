@@ -57,7 +57,7 @@ def insert_line_breaks(text):
     """
     テキストに改行を適切に挿入する。
     - 句点ごとに改行を挿入。
-    - 番号付きリスト（1. や 2. など）の前後に改行を追加。
+    - 番号付きリスト（1. や 2. など）の前に改行を追加。
     """
     if not isinstance(text, str):
         return text
@@ -65,16 +65,23 @@ def insert_line_breaks(text):
     # 初期テキストをログに記録
     print(f"【DEBUG】改行挿入前: {text}")
 
-    # 句点（。）ごとに改行を追加。ただし、リスト番号は除外
-    text = re.sub(r'(?<!\d)\。', '。\n', text)
 
-    # 番号付きリスト（1. や 2. など）の後ろに改行を追加
-    text = re.sub(r'(\d+\.\s)', r'\n\1', text)
+    # 時刻パターン（例: 12:00）の保護
+    time_pattern = re.compile(r"(\d{1,2}):(\d{2})")
+    text = time_pattern.sub(r"\1:\2", text)
+
+    # 番号付きリストの前に改行を追加
+    list_pattern = re.compile(r"(?<=\d)\.(?=\s)")
+    text = list_pattern.sub(".\n", text)
+
+    # 最後に改行を追加（必要なら）
+    if not text.endswith("\n"):
+        text += "\n"
 
     # 最終テキストをログに記録
     print(f"【DEBUG】改行挿入後: {text}")
 
-    return text.strip()
+    return text
 
 
 
@@ -143,11 +150,12 @@ def clean_response(response):
     if isinstance(response, dict):
         return {k: clean_response(v) for k, v in response.items()}
     elif isinstance(response, str):
-        response = re.sub(r'[\x00-\x1F\x7F]', '', response)
-        response = response.strip()
+        response = re.sub(r'[\x00-\x1F\x7F]', '', response)  # 制御文字の除去
+        response = response.strip()  # 前後の空白削除
+        response = re.sub(r'(?<=\d):\s*0(?=\d)', r':0', response)  # 時刻フォーマット保護
+        response = re.sub(r'(?<=\d)\.(?=\s)', '.\n', response)  # 番号リストの改行挿入
         return response
     return response
-
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
@@ -169,7 +177,6 @@ async def chat(request: ChatRequest):
                 "suggested_dates": [],
             }
         state = conversation_state[user_id]
-        #debug_log.append(f"【DEBUG-3】現在のステップ: {state['step']}")
 
         question = request.message.strip()
         debug_log.append(f"【DEBUG-2】ユーザーの応答: {question}")
@@ -203,13 +210,13 @@ async def chat(request: ChatRequest):
                 try:
                     response_data = json.loads(chat_response)
                 except json.JSONDecodeError as e:
-                    debug_log.append(f"【ERROR】JSON解析失敗: {str(e)}")
+                    debug_log.append(f"【ERROR-1】JSON解析失敗: {str(e)}")
                     return {
                         "reply": "サーバー内部エラーが発生しました。応答を解析できませんでした。",
                         "debug_log": debug_log,
                     }
             else:
-                debug_log.append("【ERROR】ChatGPT応答が不明な形式です。")
+                debug_log.append("【ERROR-2】ChatGPT応答が不明な形式です。")
                 return {
                     "reply": "サーバー内部エラーが発生しました。不明な応答形式です。",
                     "debug_log": debug_log,
@@ -221,6 +228,7 @@ async def chat(request: ChatRequest):
 
             # ステップ更新と応答送信
             state["step"] = response_data.get("next_step", "ask_details")
+            conversation_state[user_id] = state  # 状態を保存
             debug_log.append(f"【DEBUG-4-2】次のステップ: {state['step']}")
             return {
                 "reply": response_data.get("reply", "選択肢を再度教えてください。"),
@@ -252,7 +260,7 @@ async def chat(request: ChatRequest):
                     try:
                         response_data = json.loads(chat_response)
                     except json.JSONDecodeError as e:
-                        debug_log.append(f"【ERROR】FAQ JSON解析失敗: {str(e)}")
+                        debug_log.append(f"【ERROR-3】FAQ JSON解析失敗: {str(e)}")
                         return {
                             "reply": "サーバー内部エラーが発生しました。",
                             "debug_log": debug_log,
@@ -260,7 +268,7 @@ async def chat(request: ChatRequest):
                 elif isinstance(chat_response, dict):
                     response_data = chat_response
                 else:
-                    debug_log.append("【ERROR】FAQ応答形式が不明です。")
+                    debug_log.append("【ERROR-4】FAQ応答形式が不明です。")
                     return {"reply": "不明なエラーが発生しました。", "debug_log": debug_log}
 
                 return {"reply": response_data.get("reply", "もう一度質問を入力してください。"), "debug_log": debug_log}
@@ -281,11 +289,11 @@ async def chat(request: ChatRequest):
             try:
                 # ChatGPT応答のクリーンアップ
                 cleaned_response = clean_response(chat_response)
-                debug_log.append(f"【DEBUG-5-1】クリーンアップ後の応答: {cleaned_response}")
+                ### -----debug_log.append(f"【DEBUG-5-1】クリーンアップ後の応答: {cleaned_response}")
 
                 # クリーンアップ後のJSONをパース
                 response_data = json.loads(cleaned_response) if isinstance(cleaned_response, str) else cleaned_response
-                debug_log.append(f"【DEBUG-5-2】JSONパース後のデータ: {response_data}")
+                ### -----debug_log.append(f"【DEBUG-5-2】JSONパース後のデータ: {response_data}")
                          
                 # `reply`フィールドが再度JSON形式の場合の処理
                 if isinstance(response_data.get("reply"), str) and "{" in response_data["reply"]:
@@ -293,7 +301,7 @@ async def chat(request: ChatRequest):
                         nested_data_start = response_data["reply"].find("{")
                         nested_data = json.loads(response_data["reply"][nested_data_start:])
                         response_data.update(nested_data)
-                        debug_log.append(f"【DEBUG-5-3】埋め込まれたJSONを統合: {response_data}")
+                        ### -----debug_log.append(f"【DEBUG-5-3】埋め込まれたJSONを統合: {response_data}")
                     except json.JSONDecodeError as e:
                         debug_log.append(f"【WARNING】埋め込まれたJSONの解析に失敗: {str(e)}")
 
@@ -315,9 +323,9 @@ async def chat(request: ChatRequest):
                 try:
                     start_date, end_date = parse_period(date)
                     state["date"] = f"{start_date} ~ {end_date}"  # 具体的な日付範囲を記録
-                    debug_log.append(f"【DEBUG-7】解析された日程範囲: {state['date']}")
+                    debug_log.append(f"【DEBUG-6】解析された日程範囲: {state['date']}")
                 except Exception as e:
-                    debug_log.append(f"【ERROR】日程解析失敗: {str(e)}")
+                    debug_log.append(f"【ERROR-5】日程解析失敗: {str(e)}")
                     return {
                         "reply": "希望日程の解析に失敗しました。具体的な日程を教えてください。",
                         "debug_log": debug_log,
@@ -332,10 +340,10 @@ async def chat(request: ChatRequest):
                 })
 
                 # デバッグログに更新内容を記録
-                debug_log.append(f"【DEBUG-5-2】抽出された名前: {state['name']}")
-                debug_log.append(f"【DEBUG-5-3】抽出された大学: {state['university']}")
-                debug_log.append(f"【DEBUG-5-4】抽出された希望日程: {state['date']}")
-                debug_log.append(f"【DEBUG-6】state更新後: {state}")
+                debug_log.append(f"【DEBUG-7-2】抽出された名前: {state['name']}")
+                debug_log.append(f"【DEBUG-7-3】抽出された大学: {state['university']}")
+                debug_log.append(f"【DEBUG-7-4】抽出された希望日程: {state['date']}")
+                debug_log.append(f"【DEBUG-8】state更新後: {state}")
 
                 # 応答の生成箇所で改行を挿入
                 if "reply" in response_data:
@@ -349,13 +357,13 @@ async def chat(request: ChatRequest):
                 }
 
             except json.JSONDecodeError as e:
-                debug_log.append(f"【ERROR】JSON解析失敗: {str(e)}")
+                debug_log.append(f"【ERROR-6】JSON解析失敗: {str(e)}")
                 return {
                     "reply": "内部エラーが発生しました。応答の解析に失敗しました。",
                     "debug_log": debug_log,
                 }
             except Exception as e:
-                debug_log.append(f"【ERROR】予期せぬエラー: {str(e)}")
+                debug_log.append(f"【ERROR-7】予期せぬエラー: {str(e)}")
                 return {
                     "reply": "予期せぬエラーが発生しました。再度お試しください。",
                     "debug_log": debug_log,
@@ -383,32 +391,36 @@ async def chat(request: ChatRequest):
 
             # 仮予約作成と同時に「空き」イベントを削除
             for event in available_events:
-                debug_log.append(f"【DEBUG-6】削除対象イベントID: {event['id']}")  # 削除対象をログに記録
+                debug_log.append(f"【DEBUG-9】削除対象イベントID: {event['id']}")  # 削除対象をログに記録
                 delete_event_from_calendar(event["id"])  # 同じ日程の「空き」を削除
                 add_event_to_calendar(event["start"], 1.5, "仮予約")  # 仮予約を作成
-                debug_log.append(f"【DEBUG-7】仮予約作成: {event['start']} ~ {event['end']}")
+                debug_log.append(f"【DEBUG-10】仮予約作成: {event['start']} ~ {event['end']}")
 
             state["suggested_dates"] = available_events
             # 番号付きで日程を提示
             formatted_events = "\n".join([
                 f"{i + 1}. {format_date_with_weekday(event['start'], event['end'])}" for i, event in enumerate(available_events)
             ])
-            debug_log.append(f"【DEBUG-8】提案された日程: {formatted_events}")
+            debug_log.append(f"【DEBUG-11】提案された日程: {formatted_events}")
 
             # ChatGPTに応答文を生成させる
             chat_prompt_dates = (
                 f"以下の日程が見つかりました:\n{formatted_events}\n"
                 "ユーザーに番号で選んでもらうような応答文を生成してください。\n"
-                "リストの番号ごとに改行を含む形式で出力してください。\n"
+                "以下の形式でユーザーに応答してください:\n"
+                "1. 各リスト番号の前に必ず改行を入れる\n"
+                "2. 各リスト番号の後にスペースを追加する\n"
+                "3. リスト番号が終了した後は改行で終わる\n"
+                "例:\n1. 2025/01/23(木) 10:30-12:00\n2. 2025/01/23(木) 14:00-15:30\n3. 2025/01/23(木) 16:00-17:30\n"
                 "出力形式: {\"reply\": \"応答文\"}"
             )
             chat_response = clean_response(chat_with_gpt(chat_prompt_dates))
-            debug_log.append(f"【DEBUG-9】ChatGPT応答: {chat_response}")
+            debug_log.append(f"【DEBUG-12】ChatGPT応答: {chat_response}")
             if isinstance(chat_response, str):
                 try:
                     response_data = json.loads(chat_response)
                 except json.JSONDecodeError as e:
-                    debug_log.append(f"【ERROR】日程提案 JSON解析失敗: {str(e)}")
+                    debug_log.append(f"【ERROR-8】日程提案 JSON解析失敗: {str(e)}")
                     return {
                         "reply": "サーバー内部エラーが発生しました。",
                         "debug_log": debug_log,
@@ -416,7 +428,7 @@ async def chat(request: ChatRequest):
             elif isinstance(chat_response, dict):
                 response_data = chat_response
             else:
-                debug_log.append("【ERROR】日程提案応答形式が不明です。")
+                debug_log.append("【ERROR-9】日程提案応答形式が不明です。")
                 return {"reply": "不明なエラーが発生しました。", "debug_log": debug_log}
             
             if "reply" in response_data:
@@ -434,20 +446,24 @@ async def chat(request: ChatRequest):
                         
                 # 提案された日程から選択された日程を取得
                 selected_event = state["suggested_dates"][selected_index]
+
                 # 日程を確定し、「仮予約」を削除して「空き」を再作成
                 for i, event in enumerate(state["suggested_dates"]):
-                    debug_log.append(f"【DEBUG-10】選択された日程: {event}")
+                    debug_log.append(f"【DEBUG-13】選択された日程: {event}")
                     # 選択された日程は「仮予約」を削除して予約完了イベントを作成
                     delete_event_from_calendar(event["id"])
-                    debug_log.append(f"【DEBUG-11】削除対象イベント: {event['id']}")
+                    debug_log.append(f"【DEBUG-14】削除対象イベント: {event['id']}")
                     if i == selected_index:
                         add_event_to_calendar(event["start"], 1.5, f"{state['name']} ({state['university']})")
-                        debug_log.append(f"【DEBUG-12】予約完了イベント作成: {event['start']} ~ {event['end']}")
+                        debug_log.append(f"【DEBUG-15】予約完了イベント作成: {event['start']} ~ {event['end']}")
                     else:
-                        debug_log.append(f"【DEBUG-13】非選択の日程: {event}")
+                        debug_log.append(f"【DEBUG-16】非選択の日程: {event}")
                         # 他の日程は「仮予約」を削除して「空き」イベントを作成
                         add_event_to_calendar(event["start"], 1.5, "空き")
-                        debug_log.append(f"【DEBUG-14】仮予約削除および空き再作成: {event['start']} ~ {event['end']}")
+                        debug_log.append(f"【DEBUG-17】仮予約削除および空き再作成: {event['start']} ~ {event['end']}")
+
+
+                debug_log.append(f"【DEBUG】response_data の値: {response_data}")
 
                 # メール送信
                 send_email(
@@ -461,7 +477,7 @@ async def chat(request: ChatRequest):
                     response_data["reply"] = insert_line_breaks(response_data["reply"])
 
                 # 予約完了のメッセージをユーザーに返す
-                debug_log.append(f"【DEBUG-15】メール送信完了: {state['name']}（{state['university']}）様の予約が確定しました。")
+                debug_log.append(f"【DEBUG-17】メール送信完了: {state['name']}（{state['university']}）様の予約が確定しました。")
                 return {
                     "reply": f"面接予約を以下の日程で完了しました:\n{format_date_with_weekday(selected_event['start'], selected_event['end'])}",
                     "debug_log": debug_log  # デバッグ情報を含めて返す

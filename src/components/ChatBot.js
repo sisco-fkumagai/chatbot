@@ -9,15 +9,16 @@ const ChatBot = () => {
     const [isComposing, setIsComposing] = useState(false); // 変換中かどうかを追跡
     const [isLoading, setIsLoading] = useState(false); // メッセージ送信中の状態
     const [isInitialLoading, setIsInitialLoading] = useState(true); // 初期メッセージのローディング状態
-    const [userId, setUserId] = useState(localStorage.getItem('user_id') || uuidv4()); // ユーザーIDを保持
+    const [userId, setUserId] = useState(uuidv4()); // 新しいユーザーIDを生成
 
     // 環境変数からバックエンドAPI URLを取得
     const apiUrl = process.env.REACT_APP_BACKEND_API_URL;
 
     useEffect(() => {
-        // ユーザーIDをローカルストレージに保存
-        localStorage.setItem('user_id', userId);
-    }, [userId]);
+        // 毎回リロードで新しいユーザーIDを生成
+        const newUserId = uuidv4();
+        setUserId(newUserId);
+    }, []);
 
     // 初期化処理
     useEffect(() => {
@@ -62,7 +63,7 @@ const ChatBot = () => {
                 user_id: userId, // ユーザーIDを送信
             });
 
-            const chatResponse = response.data.reply; // 応答文
+            let chatResponse = response.data.reply; // 応答文
 
             // デバッグログを表示
             if (response.data.debug_log) {
@@ -71,15 +72,16 @@ const ChatBot = () => {
                 console.groupEnd();
             }
 
-            // `reply`をJSON文字列としてパース（必要なら）
+            // JSONパースが必要な場合の処理
             if (typeof chatResponse === 'string' && chatResponse.trim().startsWith("{")) {
                 try {
                     const parsedResponse = JSON.parse(chatResponse);
-                    chatResponse = parsedResponse.reply; // ネストされた`reply`を取得
+                    chatResponse = parsedResponse.reply; // 内部の`reply`を抽出
                 } catch (error) {
                     console.error("応答のJSONパースに失敗しました:", error);
                 }
             }
+
 
             // 日程調整の応答
             if (chatResponse.includes("候補日程")) {
