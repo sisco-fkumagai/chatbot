@@ -56,7 +56,7 @@ faq_data = load_faq(FAQ_PATH)
 def insert_line_breaks(text):
     """
     テキストに改行を適切に挿入する。
-    - 句点ごとに改行を挿入。
+    - 句点（。）、感嘆符（！）、疑問符（？）ごとに改行を挿入。
     - 番号付きリスト（1. や 2. など）の前に改行を追加。
     """
     if not isinstance(text, str):
@@ -65,18 +65,24 @@ def insert_line_breaks(text):
     # 初期テキストをログに記録
     print(f"【DEBUG】改行挿入前: {text}")
 
-
     # 時刻パターン（例: 12:00）の保護
     time_pattern = re.compile(r"(\d{1,2}):(\d{2})")
     text = time_pattern.sub(r"\1:\2", text)
 
-    # 番号付きリストの前に改行を追加
-    list_pattern = re.compile(r"(?<=\d)\.(?=\s)")
-    text = list_pattern.sub(".\n", text)
+    # 番号付きリスト（例: 1. 、2. 、3.）の前に改行を追加（先頭行を除外）
+    text = re.sub(r'(?<!^)(?=\d+\.\s)', r'\n', text)
 
-    # 最後に改行を追加（必要なら）
-    if not text.endswith("\n"):
-        text += "\n"
+    # リスト番号とその後の内容の間にスペースを挿入
+    text = re.sub(r'(\d+\.)\s*', r'\1 ', text)
+
+    # 句点（。）、感嘆符（！）、疑問符（？）ごとに改行を追加
+    text = re.sub(r'(?<!\d)([。！？])', r'\1\n', text)
+
+    # 改行が不要な部分を修正（リスト項目の時刻フォーマットが壊れるのを防ぐ）
+    text = re.sub(r'(:\d{2})\n(?=\d)', r'\1', text)
+
+    # 不要な改行を削除
+    text = re.sub(r'\n{2,}', '\n', text).strip()
 
     # 最終テキストをログに記録
     print(f"【DEBUG】改行挿入後: {text}")
@@ -156,6 +162,7 @@ def clean_response(response):
         response = re.sub(r'(?<=\d)\.(?=\s)', '.\n', response)  # 番号リストの改行挿入
         return response
     return response
+
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
@@ -352,7 +359,7 @@ async def chat(request: ChatRequest):
                 # 次のステップへ進む応答を返す
                 state["step"] = response_data.get("next_step", "suggest_dates")
                 return {
-                    "reply": f"{state['name']}さん、情報の提供ありがとうございます。「{state['date']}」で進めてもよろしいでしょうか？",
+                    "reply": f"{state['name']}さん、情報の提供ありがとうございます。\n「{state['date']}」で進めてもよろしいでしょうか？",
                     "debug_log": debug_log,
                 }
 
