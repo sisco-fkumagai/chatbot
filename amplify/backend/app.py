@@ -119,13 +119,23 @@ def clean_response(response):
     if isinstance(response, dict):
         return {k: clean_response(v) for k, v in response.items()}
     elif isinstance(response, str):
-        response = re.sub(r'[\x00-\x1F\x7F]', '', response)  # 制御文字の除去
-        response = response.strip()  # 前後の空白削除
-        response = re.sub(r'(?<=\d):\s*0(?=\d)', r':0', response)  # 時刻フォーマット保護
-        response = re.sub(r'(?<=\n)(\d+\.)', r'\n\1', response)  # 番号リストの改行挿入
-        response = response.replace('\\n', '\n')  # エスケープされた\nを単一の改行に変換
+        # 制御文字を削除
+        response = re.sub(r'[\x00-\x1F\x7F]', '', response)
+        # 前後の空白削除
+        response = response.strip()
+        # 番号リストの前に改行を追加
+        response = re.sub(r"(?<!\n)(\d+\.)", r"\n\1", response)
+        # 時刻フォーマットの修正
+        response = re.sub(r"(?<=\d):\s*0(?=\d)", r":0", response)
+        # 時刻の後に改行を挿入
+        response = re.sub(r"(\d{2}:\d{2})(?=\d+\.)", r"\1\n", response)
+        # 重複する改行を統一
+        response = re.sub(r"\n{2,}", "\n", response)
+        # 余計な改行を削除
+        response = response.strip("\n")
         return response
     return response
+
 
 
 def format_suggested_dates(events):
@@ -175,7 +185,7 @@ async def chat(request: ChatRequest):
                 "選択に基づいて次のステップを生成してください。\n"
                 "一次面接の日程調整と採用活動に関する質問への回答以外は行わないでください。\n"
                 "一次面接以外の日程調整はしないでください。\n"
-                "日程調整を選んだ場合は、名前、大学、希望日程を聞いてください。\n"
+                "日程調整を選んだ場合は、名前、学校、希望日程を聞いてください。\n"
                 "希望日程は「今週」「来週」などの表現でも進めてください。\n"
                 "応答文は「。」や「？」など文末に\\nを入れ改行してください。"
                 "次のステップ: 日程調整はask_details、質問はfaq_handling\n"
@@ -365,10 +375,21 @@ async def chat(request: ChatRequest):
             # 仮予約作成と同時に「空き」イベントを削除
             for event in available_events:
                 try:
-                    debug_log.append(f"【DEBUG-9】削除対象イベント:{event['start']}")  # 削除対象をログに記録
-                    delete_event_from_calendar(event["start"].split("T")[0], time=event["start"].split("T")[1][:5], title="空き")  # 同じ日程の「空き」を削除
+                    # 削除対象をログに記録
+                    debug_log.append(f"【DEBUG-9】削除対象イベント: {event['start']} ~ {event['end']}, タイトル: 空き")
+                    
+                    # イベント削除実行
+                    delete_event_from_calendar(
+                        date=event["start"].split("T")[0],
+                        time=event["start"].split("T")[1][:5],
+                        title="空き"
+                    )
+                    
+                    # 削除成功ログ
                     debug_log.append(f"【DEBUG-10】空きイベント削除成功: {event['start']} ~ {event['end']}")
-                    add_event_to_calendar(event["start"], 1.5, "仮予約")  # 仮予約を作成
+                    
+                    # 仮予約の作成
+                    add_event_to_calendar(event["start"], 1.5, "仮予約")
                 except Exception as e:
                     debug_log.append(f"【ERROR】仮予約作成時のエラー: {str(e)}")
 
@@ -410,10 +431,11 @@ async def chat(request: ChatRequest):
                 debug_log.append("【ERROR-9】日程提案応答形式が不明です。")
                 return {"reply": "不明なエラーが発生しました。", "debug_log": debug_log}
             
-            # 応答文の改行補正
+            # 応答文のフォーマット調整
             if "reply" in response_data:
-                response_data["reply"] = re.sub(r"(?<!\n)(\d+\.\s)", r"\n\1", response_data["reply"])  # 番号の前に改行
-                response_data["reply"] = response_data["reply"].replace("\\n", "\n").strip()  # \\n を \n に変換
+                response_data["reply"] = clean_response(response_data["reply"])
+                debug_log.append(f"【DEBUG-13】整形後の応答文: {response_data['reply']}")
+
             
             state["step"] = "confirm_date"
             return {"reply": response_data.get("reply"),"debug_log": debug_log,}
