@@ -114,25 +114,27 @@ def add_event_to_calendar_jst(start_time, duration_hours, title):
 
 def clean_response(response):
     """
-    ChatGPTの応答をクリーンアップして、不正な制御文字やフォーマットの問題を解消する。
+    ChatGPTの応答をクリーンアップし、フォーマットを修正する。
     """
     if isinstance(response, dict):
         return {k: clean_response(v) for k, v in response.items()}
     elif isinstance(response, str):
-        # 制御文字を削除
+        # 制御文字の除去
         response = re.sub(r'[\x00-\x1F\x7F]', '', response)
-        # 前後の空白削除
+        # 前後の空白を削除
         response = response.strip()
-        # 番号リストの前に改行を追加
+        # 番号リスト前に改行を追加
         response = re.sub(r"(?<!\n)(\d+\.)", r"\n\1", response)
-        # 時刻フォーマットの修正
-        response = re.sub(r"(?<=\d):\s*0(?=\d)", r":0", response)
-        # 時刻の後に改行を挿入
-        response = re.sub(r"(\d{2}:\d{2})(?=\d+\.)", r"\1\n", response)
-        # 重複する改行を統一
+        # 不完全な時刻範囲を修正
+        response = re.sub(r"(\d{2}:\d{2}):\n(\d{2})", r"\1-\2", response)
+        # 不完全な番号リストを修正
+        response = re.sub(r"(?<=\d):\n(\d{2})", r":\1", response)
+        # 時刻リストに余計な改行を削除
+        response = re.sub(r"(\d{2}:\d{2})(?=\d)", r"\1\n", response)
+        # 重複する改行を削除
         response = re.sub(r"\n{2,}", "\n", response)
-        # 余計な改行を削除
-        response = response.strip("\n")
+        # 文末に必要な改行を追加
+        response = response.strip("\n") + "\n"
         return response
     return response
 
@@ -281,7 +283,15 @@ async def chat(request: ChatRequest):
 
                 # クリーンアップ後のJSONをパース
                 response_data = json.loads(cleaned_response) if isinstance(cleaned_response, str) else cleaned_response
-                         
+
+                # 応答文が空か不正な場合
+                if not response_data.get("reply"):
+                    debug_log.append("【ERROR-13】応答文が空または不正です。")
+                    return {
+                        "reply": "必要な情報を取得できませんでした。もう一度教えてください。",
+                        "debug_log": debug_log,
+                    }
+                
                 # `reply`フィールドが再度JSON形式の場合の処理
                 if isinstance(response_data.get("reply"), str) and "{" in response_data["reply"]:
                     try:
@@ -319,12 +329,14 @@ async def chat(request: ChatRequest):
                     }
 
                 # `state` の更新
+                # `state` の更新
                 state.update({
-                    "name": name,
-                    "university": university,
-                    "date": state["date"],  # 解析された日程範囲を保持
-                    "step": next_step,  # 必ず次のステップを'suggest_dates'に設定
+                    "name": clean_response(response_data.get("name", "")).strip(),  # 不要な改行を削除
+                    "university": clean_response(response_data.get("university", "")).strip(),  # 不要な改行を削除
+                    "date": clean_response(state["date"]).strip(),  # 日程範囲も整形
+                    "step": next_step.strip(),  # 次のステップも整形
                 })
+
 
                 # デバッグログに更新内容を記録
                 debug_log.append(f"【DEBUG-7-2】抽出された名前: {state['name']}")
@@ -333,7 +345,7 @@ async def chat(request: ChatRequest):
                 debug_log.append(f"【DEBUG-8】state更新後: {state}")
 
                 # 次のステップへ進む応答を返す
-                state["step"] = response_data.get("next_step", "suggest_dates")
+                state["step"] = response_data.get("next_step", "suggest_dates").strip()
                 return {
                     "reply": f"{state['name']}さん、情報の提供ありがとうございます。\n「{state['date']}」で進めてもよろしいでしょうか？",
                     "debug_log": debug_log,
