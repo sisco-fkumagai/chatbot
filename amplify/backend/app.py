@@ -53,43 +53,6 @@ FAQ_PATH = os.path.join(os.path.dirname(__file__), "helpers", "faq.json")
 faq_data = load_faq(FAQ_PATH)
 
 
-def insert_line_breaks(text):
-    """
-    テキストに改行を適切に挿入する。
-    - 句点（。）、感嘆符（！）、疑問符（？）ごとに改行を挿入。
-    - 番号付きリスト（1. や 2. など）の前に改行を追加。
-    """
-    if not isinstance(text, str):
-        return text
-
-    # 初期テキストをログに記録
-    print(f"【DEBUG】改行挿入前: {text}")
-
-    # 時刻パターン（例: 12:00）の保護
-    time_pattern = re.compile(r"(\d{1,2}):(\d{2})")
-    text = time_pattern.sub(r"\1:\2", text)
-
-    # 番号付きリスト（例: 1. 、2. 、3.）の前に改行を追加（先頭行を除外）
-    text = re.sub(r'(?<!^)(?=\d+\.\s)', r'\n', text)
-
-    # リスト番号とその後の内容の間にスペースを挿入
-    text = re.sub(r'(\d+\.)\s*', r'\1 ', text)
-
-    # 句点（。）、感嘆符（！）、疑問符（？）ごとに改行を追加
-    text = re.sub(r'(?<!\d)([。！？])', r'\1\n', text)
-
-    # 改行が不要な部分を修正（リスト項目の時刻フォーマットが壊れるのを防ぐ）
-    text = re.sub(r'(:\d{2})\n(?=\d)', r'\1', text)
-
-    # 不要な改行を削除
-    text = re.sub(r'\n{2,}', '\n', text).strip()
-
-    # 最終テキストをログに記録
-    print(f"【DEBUG】改行挿入後: {text}")
-
-    return text
-
-
 
 def parse_period(user_message):
     """
@@ -159,9 +122,20 @@ def clean_response(response):
         response = re.sub(r'[\x00-\x1F\x7F]', '', response)  # 制御文字の除去
         response = response.strip()  # 前後の空白削除
         response = re.sub(r'(?<=\d):\s*0(?=\d)', r':0', response)  # 時刻フォーマット保護
-        response = re.sub(r'(?<=\d)\.(?=\s)', '.\n', response)  # 番号リストの改行挿入
+        response = re.sub(r'(?<=\n)(\d+\.)', r'\n\1', response)  # 番号リストの改行挿入
+        response = response.replace('\\n', '\n')  # エスケープされた\nを単一の改行に変換
         return response
     return response
+
+
+def format_suggested_dates(events):
+    """
+    提案する日程を番号付きリストにフォーマット。
+    """
+    return "\n".join([
+        f"{i + 1}. {format_date_with_weekday(event['start'], event['end'])}"
+        for i, event in enumerate(events)
+    ])
 
 
 @app.post("/chat")
@@ -203,6 +177,7 @@ async def chat(request: ChatRequest):
                 "一次面接以外の日程調整はしないでください。\n"
                 "日程調整を選んだ場合は、名前、大学、希望日程を聞いてください。\n"
                 "希望日程は「今週」「来週」などの表現でも進めてください。\n"
+                "応答文は「。」や「？」など文末に\\nを入れ改行してください。"
                 "次のステップ: 日程調整はask_details、質問はfaq_handling\n"
                 "出力形式: {\"next_step\": \"次のステップ\", \"reply\": \"応答文\"}"
             )
@@ -229,10 +204,6 @@ async def chat(request: ChatRequest):
                     "debug_log": debug_log,
                 }
             
-            # 応答の生成箇所で改行を挿入
-            if "reply" in response_data:
-                response_data["reply"] = insert_line_breaks(response_data["reply"])
-
             # ステップ更新と応答送信
             state["step"] = response_data.get("next_step", "ask_details")
             conversation_state[user_id] = state  # 状態を保存
@@ -287,6 +258,7 @@ async def chat(request: ChatRequest):
                 "不足している情報があれば、それをユーザーに再度確認する応答文を生成してください。\n"
                 "希望日程は「今週」「来週」などの表現でも次のステップに進めてください。\n"
                 "次のステップはsuggest_dates\n"
+                "応答文は「。」や「？」など文末に\\nを入れ改行してください。"
                 "応答は出力形式に沿ってしてください。\n"
                 "出力形式: {\"next_step\": \"次のステップ\", \"reply\": \"応答文\", \"name\": \"名前\", \"university\": \"大学\", \"date\": \"希望日程\"}"
             )
@@ -296,11 +268,9 @@ async def chat(request: ChatRequest):
             try:
                 # ChatGPT応答のクリーンアップ
                 cleaned_response = clean_response(chat_response)
-                ### -----debug_log.append(f"【DEBUG-5-1】クリーンアップ後の応答: {cleaned_response}")
 
                 # クリーンアップ後のJSONをパース
                 response_data = json.loads(cleaned_response) if isinstance(cleaned_response, str) else cleaned_response
-                ### -----debug_log.append(f"【DEBUG-5-2】JSONパース後のデータ: {response_data}")
                          
                 # `reply`フィールドが再度JSON形式の場合の処理
                 if isinstance(response_data.get("reply"), str) and "{" in response_data["reply"]:
@@ -352,10 +322,6 @@ async def chat(request: ChatRequest):
                 debug_log.append(f"【DEBUG-7-4】抽出された希望日程: {state['date']}")
                 debug_log.append(f"【DEBUG-8】state更新後: {state}")
 
-                # 応答の生成箇所で改行を挿入
-                if "reply" in response_data:
-                    response_data["reply"] = insert_line_breaks(response_data["reply"])
-
                 # 次のステップへ進む応答を返す
                 state["step"] = response_data.get("next_step", "suggest_dates")
                 return {
@@ -404,21 +370,24 @@ async def chat(request: ChatRequest):
                 debug_log.append(f"【DEBUG-10】仮予約作成: {event['start']} ~ {event['end']}")
 
             state["suggested_dates"] = available_events
-            # 番号付きで日程を提示
-            formatted_events = "\n".join([
-                f"{i + 1}. {format_date_with_weekday(event['start'], event['end'])}" for i, event in enumerate(available_events)
-            ])
+            # フォーマットされた日程
+            formatted_events = format_suggested_dates(available_events)
             debug_log.append(f"【DEBUG-11】提案された日程: {formatted_events}")
 
             # ChatGPTに応答文を生成させる
             chat_prompt_dates = (
-                f"以下の日程が見つかりました:\n{formatted_events}\n"
+                f"以下の日程が見つかりました:\n\n{formatted_events}\n\n"
                 "ユーザーに番号で選んでもらうような応答文を生成してください。\n"
-                "以下の形式でユーザーに応答してください:\n"
-                "1. 各リスト番号の前に必ず改行を入れる\n"
-                "2. 各リスト番号の後にスペースを追加する\n"
-                "3. リスト番号が終了した後は改行で終わる\n"
-                "例:\n1. 2025/01/23(木) 10:30-12:00\n2. 2025/01/23(木) 14:00-15:30\n3. 2025/01/23(木) 16:00-17:30\n"
+                "以下のルールに従って応答文を作成してください。\n"
+                "1. 応答文は「。」や「？」など文末に\\nを入れ改行してください。\n"
+                "2. 各日程番号（1. 、2. 、3. ）の前には必ず\\nを入れ改行してください\n"
+                "3. リスト表示終了後には\\nを挿入してください\n"
+                "例:\n"
+                "利用可能な日程は以下の通りです。\\n\n"
+                "\\n1. 2025/01/27(月) 10:30-12:00\n"
+                "\\n2. 2025/01/27(月) 14:00-15:30\n"
+                "\\n3. 2025/01/28(火) 10:30-12:00\\n\n"
+                "ご希望の日時がありましたら、番号でお知らせください。\\n"
                 "出力形式: {\"reply\": \"応答文\"}"
             )
             chat_response = clean_response(chat_with_gpt(chat_prompt_dates))
@@ -438,9 +407,11 @@ async def chat(request: ChatRequest):
                 debug_log.append("【ERROR-9】日程提案応答形式が不明です。")
                 return {"reply": "不明なエラーが発生しました。", "debug_log": debug_log}
             
+            # 応答文の改行補正
             if "reply" in response_data:
-                response_data["reply"] = insert_line_breaks(response_data["reply"])
-
+                response_data["reply"] = re.sub(r"(?<!\n)(\d+\.\s)", r"\n\1", response_data["reply"])  # 番号の前に改行
+                response_data["reply"] = response_data["reply"].replace("\\n", "\n").strip()  # \\n を \n に変換
+            
             state["step"] = "confirm_date"
             return {"reply": response_data.get("reply"),"debug_log": debug_log,}
 
@@ -456,21 +427,22 @@ async def chat(request: ChatRequest):
 
                 # 日程を確定し、「仮予約」を削除して「空き」を再作成
                 for i, event in enumerate(state["suggested_dates"]):
-                    debug_log.append(f"【DEBUG-13】選択された日程: {event}")
-                    # 選択された日程は「仮予約」を削除して予約完了イベントを作成
-                    delete_event_from_calendar(event["id"])
-                    debug_log.append(f"【DEBUG-14】削除対象イベント: {event['id']}")
-                    if i == selected_index:
-                        add_event_to_calendar(event["start"], 1.5, f"{state['name']} ({state['university']})")
-                        debug_log.append(f"【DEBUG-15】予約完了イベント作成: {event['start']} ~ {event['end']}")
-                    else:
-                        debug_log.append(f"【DEBUG-16】非選択の日程: {event}")
-                        # 他の日程は「仮予約」を削除して「空き」イベントを作成
-                        add_event_to_calendar(event["start"], 1.5, "空き")
-                        debug_log.append(f"【DEBUG-17】仮予約削除および空き再作成: {event['start']} ~ {event['end']}")
+                    try:
+                        debug_log.append(f"【DEBUG-13】処理中の日程: {event}")
+                        # 仮予約の削除を試みる
+                        delete_event_from_calendar(event["id"])
+                        debug_log.append(f"【DEBUG-14】仮予約削除成功: {event['id']}")
 
-
-                debug_log.append(f"【DEBUG】response_data の値: {response_data}")
+                        if i == selected_index:
+                            # 選択された日程に予約完了イベントを作成
+                            add_event_to_calendar(event["start"], 1.5, f"{state['name']} ({state['university']})")
+                            debug_log.append(f"【DEBUG-15】予約完了イベント作成: {event['start']} ~ {event['end']}")
+                        else:
+                            # 非選択の日程を「空き」として再作成
+                            add_event_to_calendar(event["start"], 1.5, "空き")
+                            debug_log.append(f"【DEBUG-16】非選択の日程を空きに再作成: {event['start']} ~ {event['end']}")
+                    except Exception as e:
+                        debug_log.append(f"【ERROR】日程処理中にエラー発生: {event}, エラー内容: {str(e)}")
 
                 # メール送信
                 send_email(
@@ -478,10 +450,6 @@ async def chat(request: ChatRequest):
                     body=f"{state['name']}（{state['university']}）様の面接予約が完了しました。\n日時: {format_date_with_weekday(selected_event['start'], selected_event['end'])}",
                     to="kfuka@sisco-consulting.co.jp"
                 )
-
-                # 応答の生成箇所で改行を挿入
-                if "reply" in response_data:
-                    response_data["reply"] = insert_line_breaks(response_data["reply"])
 
                 # 予約完了のメッセージをユーザーに返す
                 debug_log.append(f"【DEBUG-17】メール送信完了: {state['name']}（{state['university']}）様の予約が確定しました。")

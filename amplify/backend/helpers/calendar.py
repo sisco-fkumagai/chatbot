@@ -42,6 +42,7 @@ def add_event_to_calendar(date, hours, title):
     if response.status_code != 200:
         raise Exception(f"イベント追加失敗: {response.text}")
 
+
 def delete_event_from_calendar(event_id):
     """
     Googleカレンダーから特定のイベントを削除する。
@@ -52,7 +53,19 @@ def delete_event_from_calendar(event_id):
         "eventId": event_id
     }
     response = requests.post(CALENDAR_API_URL, json=data)
-    if response.status_code == 200:
-        logger.debug(f"削除リクエスト成功: {response.text}")
+    logger.debug(f"レスポンスステータスコード: {response.status_code}")
+    logger.debug(f"レスポンス内容: {response.text}")  # レスポンス内容を記録
+
+    try:
+        result = response.json()
+        logger.debug(f"レスポンスJSON: {result}")
+    except requests.exceptions.JSONDecodeError:
+        logger.error(f"レスポンスのJSONデコードに失敗しました: {response.text}")
+        raise ValueError(f"Invalid response from server: {response.text}")
+
+    if result.get("success"):
+        logger.debug(f"削除成功: {result}")
     else:
-        logger.error(f"削除リクエスト失敗: {response.text}")
+        logger.error(f"削除失敗: {result}")
+
+
