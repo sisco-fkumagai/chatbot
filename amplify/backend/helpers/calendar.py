@@ -43,29 +43,22 @@ def add_event_to_calendar(date, hours, title):
         raise Exception(f"イベント追加失敗: {response.text}")
 
 
-def delete_event_from_calendar(event_id):
+def delete_event_from_calendar(date, time, title):
     """
-    Googleカレンダーから特定のイベントを削除する。
+    Googleカレンダーから指定のイベントを削除する。
+    :param date: 削除対象イベントの日付（例: "2025-01-30"）
+    :param hours: 削除対象イベントの時間（例: "14:00"）
+    :param title: 削除対象イベントのタイトル
     """
-    logger.debug(f"送信するイベントID: {event_id}")
     data = {
-        "action": "deleteEvent",
-        "eventId": event_id
+        "action": "deleteEvent",  # GASでイベント削除処理を判定するためのアクション
+        "Date": date,
+        "Time": time,
+        "Title": title
     }
+    
     response = requests.post(CALENDAR_API_URL, json=data)
-    logger.debug(f"レスポンスステータスコード: {response.status_code}")
-    logger.debug(f"レスポンス内容: {response.text}")  # レスポンス内容を記録
-
-    try:
-        result = response.json()
-        logger.debug(f"レスポンスJSON: {result}")
-    except requests.exceptions.JSONDecodeError:
-        logger.error(f"レスポンスのJSONデコードに失敗しました: {response.text}")
-        raise ValueError(f"Invalid response from server: {response.text}")
-
-    if result.get("success"):
-        logger.debug(f"削除成功: {result}")
-    else:
-        logger.error(f"削除失敗: {result}")
-
-
+    logger.debug(f"API: {CALENDAR_API_URL}")
+    if response.status_code != 200:
+        raise Exception(f"削除失敗: {response.text}")
+    logger.debug(f"イベント削除成功: {date} {time} {title}")

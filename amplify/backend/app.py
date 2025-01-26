@@ -364,10 +364,13 @@ async def chat(request: ChatRequest):
 
             # 仮予約作成と同時に「空き」イベントを削除
             for event in available_events:
-                debug_log.append(f"【DEBUG-9】削除対象イベントID: {event['id']}")  # 削除対象をログに記録
-                delete_event_from_calendar(event["id"])  # 同じ日程の「空き」を削除
-                add_event_to_calendar(event["start"], 1.5, "仮予約")  # 仮予約を作成
-                debug_log.append(f"【DEBUG-10】仮予約作成: {event['start']} ~ {event['end']}")
+                try:
+                    debug_log.append(f"【DEBUG-9】削除対象イベント:{event['start']}")  # 削除対象をログに記録
+                    delete_event_from_calendar(event["start"].split("T")[0], time=event["start"].split("T")[1][:5], title="空き")  # 同じ日程の「空き」を削除
+                    debug_log.append(f"【DEBUG-10】空きイベント削除成功: {event['start']} ~ {event['end']}")
+                    add_event_to_calendar(event["start"], 1.5, "仮予約")  # 仮予約を作成
+                except Exception as e:
+                    debug_log.append(f"【ERROR】仮予約作成時のエラー: {str(e)}")
 
             state["suggested_dates"] = available_events
             # フォーマットされた日程
@@ -430,8 +433,8 @@ async def chat(request: ChatRequest):
                     try:
                         debug_log.append(f"【DEBUG-13】処理中の日程: {event}")
                         # 仮予約の削除を試みる
-                        delete_event_from_calendar(event["id"])
-                        debug_log.append(f"【DEBUG-14】仮予約削除成功: {event['id']}")
+                        delete_event_from_calendar(event["start"].split("T")[0], time=event["start"].split("T")[1][:5], title="仮予約")
+                        debug_log.append(f"【DEBUG-14】仮予約削除成功: {event['start']} ~ {event['end']}")
 
                         if i == selected_index:
                             # 選択された日程に予約完了イベントを作成
